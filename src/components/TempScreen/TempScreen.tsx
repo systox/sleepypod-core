@@ -1,5 +1,6 @@
 'use client'
 
+import { useHoldSetting } from '@/src/components/Fork/HoldSetting'
 import Link from 'next/link'
 import { activeSleeperSides, scheduleSourceSide } from '@/src/lib/singleSleeper'
 import { useEffect, useState } from 'react'
@@ -114,7 +115,7 @@ export const TempScreen = () => {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [showStage, setView])
-  const [holdMinutes, setHoldMinutes] = useState(30)
+  const [holdMinutes, setHoldMinutes] = useHoldSetting()
   const refetchStatus = () => {
     void refetch()
   }

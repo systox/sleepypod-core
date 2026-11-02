@@ -42,6 +42,7 @@ describe('appRouter public surface', () => {
       'curveTemplates',
       'biometricTuning',
       'biometricShadow',
+      'fork',
     ])
   })
 })

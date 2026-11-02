@@ -77,6 +77,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 import cbor2
 from common.nats_follower import create_follower
 from common.side_mode import SingleSleeperMode
+from common.fork_presence import ForkPresence, default_path as fork_presence_path
 from common.dialect import (
     KNOWN_RECORD_TYPES,
     log_capsense_status_once,
@@ -153,6 +154,7 @@ OCCUPIED_LOAD_TAU_S = 5 * 60
 # it a reboot or service restart mid-session silently dropped the whole night.
 STATE_PATH = Path(os.environ.get(
     "SLEEP_DETECTOR_STATE_PATH", str(BIOMETRICS_DB.parent / "sleep-detector-state.json")))
+FORK_PRESENCE = ForkPresence(fork_presence_path(BIOMETRICS_DB.parent))
 STATE_VERSION = 1
 # How often to checkpoint an open session (seconds). Session start/close and
 # bed-exits checkpoint immediately.
@@ -1130,6 +1132,9 @@ class SessionTracker:
     # evidence. A merged home-side absence requires usable evidence from both.
     _vitals_presence: Optional[bool] = None
     _vitals_evidence_ts: Optional[float] = None
+    # When the fork's detector dates this side's last change, so a record's
+    # in and out times aren't its call-out delay late.
+    _presence_since: Optional[float] = None
     # Pod 5 firmware emits an all -1.0 capSense2 frame every 5 min; the frame
     # after it is still settling (channels above 28.5 read exactly 28.5), so
     # it is skipped too. Its down-and-back-up delta added ~110 to one epoch
@@ -1287,6 +1292,9 @@ class SessionTracker:
                             self.side, datetime.fromtimestamp(exit_at, tz=timezone.utc).isoformat(),
                             EXIT_COLLAPSE_FRACTION * 100, EXIT_SETTLE_S // 60)
             present = baseline.is_present(values, self._level_present)
+            fork = FORK_PRESENCE.state(self.side)
+            if fork is not None:
+                present, self._presence_since = fork
             self._level_present = present
             if present:
                 self._level_present_ts = ts
@@ -1441,7 +1449,7 @@ class SessionTracker:
         if self._pending_state != raw_present:
             # New candidate differing from committed state — start its dwell.
             self._pending_state = raw_present
-            self._pending_since = ts
+            self._pending_since = min(ts, self._presence_since or ts)
             return False
 
         if (self._pending_since is not None

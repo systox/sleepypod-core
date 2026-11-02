@@ -1,3 +1,4 @@
+import { markPersonPower } from '@/src/fork/runtime'
 import type { HardwareClient } from './client'
 import { MAX_TEMP, MIN_TEMP, type Side } from './types'
 import type { GestureEvent } from './dacMonitor'
@@ -195,6 +196,7 @@ export class GestureActionHandler {
       const client = this.deps.newHardwareClient(this.socketPath)
       try {
         await client.connect()
+        markPersonPower(event.side, nextPowered)
         if (nextPowered) await getTemperatureController().setManualLocked(event.side, target)
         else await getTemperatureController().powerOffLocked(event.side)
       }

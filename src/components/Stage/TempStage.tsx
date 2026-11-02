@@ -1,5 +1,7 @@
 'use client'
 
+import { useRunCurve } from '@/src/components/Fork/useRunCurve'
+import { useHoldSetting } from '@/src/components/Fork/HoldSetting'
 import { Link2, Power } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -111,7 +113,7 @@ export function TempStage({ onExit }: { onExit: () => void }) {
   const { data: occupancy } = trpc.biometrics.getOccupancy.useQuery(undefined, { refetchInterval: 30_000 })
   const [zoneMode] = useStageZones()
   const [autoReturn] = useStageAutoReturn()
-  const [holdMinutes, setHoldMinutes] = useState(30)
+  const [holdMinutes, setHoldMinutes] = useHoldSetting()
   const refetchStatus = () => {
     void refetch()
   }
@@ -129,7 +131,12 @@ export function TempStage({ onExit }: { onExit: () => void }) {
     left: trpc.schedules.getAll.useQuery({ side: 'left' }, { staleTime: 60_000 }),
     right: trpc.schedules.getAll.useQuery({ side: 'right' }, { staleTime: 60_000 }),
   }
-  const curves = useMemo(() => stageCurves({ left: schedules.left.data?.temperature, right: schedules.right.data?.temperature }, win), [schedules.left.data, schedules.right.data, win])
+  const movedLeft = useRunCurve('left')
+  const movedRight = useRunCurve('right')
+  const curves = useMemo(() => {
+    const saved = stageCurves({ left: schedules.left.data?.temperature, right: schedules.right.data?.temperature }, win)
+    return { left: movedLeft ?? saved.left, right: movedRight ?? saved.right }
+  }, [schedules.left.data, schedules.right.data, win, movedLeft, movedRight])
   // The Temp screen timeline's power and in-bed rows, on tonight's window.
   const recordsFrom = new Date(win.start - 12 * HOUR)
   const records = {

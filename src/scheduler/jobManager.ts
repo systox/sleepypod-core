@@ -29,6 +29,7 @@ import { activeSleeperSides, type BedState, mirrorSideFor, scheduleSourceSide, s
 import { WakeWindows, slotBefore } from './wakeWindow'
 import { ALARM_HOLD_AFTER_MIN, alarmWarmupMinutes } from '@/src/temperature/baseline'
 import { nightDay, nightPowerKey, type NightPower } from '@/src/lib/nightDay'
+import { smartOwnsSide } from '@/src/fork/runtime'
 
 const HEARTBEAT_INTERVAL_MS_DEFAULT = 60_000
 const HEARTBEAT_STALE_MS_DEFAULT = 90_000
@@ -174,6 +175,7 @@ export class JobManager {
   ): Promise<void> {
     const single = singleSleeperSideFor(modes)
     if (single && !mirrorSideFor(single, modes)) return
+    if (smartOwnsSide(side)) return
     if (!single) {
       const other = side === 'left' ? 'right' : 'left'
       if (modes[side]?.awayMode && modes[other]?.awayMode) await this.powerOffForScheduleLocked(other)
@@ -524,6 +526,10 @@ export class JobManager {
   private async powerOnForSchedule(side: 'left' | 'right', sched: typeof powerSchedules.$inferSelect): Promise<void> {
     if (await this.hasActiveRunOnceSession(side)) {
       console.log(`Skipping recurring power-on job — run-once session active for ${side}`)
+      return
+    }
+    if (smartOwnsSide(side)) {
+      console.log(`Skipping recurring power-on job — Smart start owns ${side}`)
       return
     }
     await withSideLock(side, async () => {
@@ -947,6 +953,7 @@ export class JobManager {
             // still blocks the power-on (ADR 0022).
             await withSideLock(side, async () => {
               if (!activeSleeperSides(await this.awayModes()).includes(side)) return
+              if (smartOwnsSide(side)) return
               if (pumpStallShouldBlock(side)) {
                 console.warn(`[jobManager] skipped away-return power-on: pump stall guard blocks ${side}`)
                 return

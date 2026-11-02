@@ -21,6 +21,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from common.fork_presence import ForkPresence, default_path
+
 log = logging.getLogger("bed_presence")
 
 STATE_VERSION = 1
@@ -37,7 +39,9 @@ class BedPresence:
     def __init__(self, path: Path, reload_s: float = BED_PRESENCE_RELOAD_S,
                  stale_s: float = BED_PRESENCE_STALE_S,
                  clock: Callable[[], float] = time.monotonic,
-                 wall: Callable[[], float] = time.time):
+                 wall: Callable[[], float] = time.time,
+                 fork=None):
+        self._fork = fork if fork is not None else ForkPresence(default_path(path.parent), clock=clock, wall=wall)
         self._path = path
         self._reload_s = reload_s
         self._stale_s = stale_s
@@ -50,6 +54,9 @@ class BedPresence:
     def occupied(self, side: str) -> Optional[bool]:
         """True/False per the sleep-detector, or None when unknown (no state
         file, unreadable, or stale) — callers fall back to their own signal."""
+        known = self._fork.occupied(side)
+        if known is not None:
+            return known
         self._maybe_reload()
         entry = self._state.get(side) if self._state is not None else None
         if not isinstance(entry, dict):

@@ -9,6 +9,7 @@ import { curveTemplates } from './curveTemplates'
 import { databases } from './databases'
 import { device } from './device'
 import { environment } from './environment'
+import { fork } from './fork'
 import { health } from './health'
 import { homekit } from './homekit'
 import { mqtt } from './mqtt'
@@ -39,6 +40,7 @@ export const demoRouters = {
   pumpAlerts,
   raw,
   runOnce,
+  fork,
   schedules,
   settings,
   sleepStages,

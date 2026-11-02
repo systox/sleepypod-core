@@ -6,7 +6,7 @@ import { CalendarDays, Hand, ShieldAlert, Sparkles, Timer } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { SelectValue } from '@/src/components/ds'
+import { HoldRow } from '@/src/components/Fork/HoldSetting'
 import { trpc } from '@/src/utils/trpc'
 import type { Side } from '@/src/hardware/types'
 import type { TemperatureControlStatus } from '@/src/temperature/controller'
@@ -88,16 +88,5 @@ export function HoldDurationRow({ holdMinutes, onDurationChange }: {
   holdMinutes: number
   onDurationChange: (minutes: number) => void
 }) {
-  return (
-    <div className="mt-auto flex items-center gap-3 border-t border-line pt-3 text-sm text-fg-2 min-[900px]:text-[13px]">
-      Hold after adjustment
-      <SelectValue
-        className="ml-auto"
-        label="Temperature hold duration"
-        value={holdMinutes}
-        options={HOLD_OPTIONS}
-        onChange={v => onDurationChange(v)}
-      />
-    </div>
-  )
+  return <HoldRow holdMinutes={holdMinutes} onDurationChange={onDurationChange} />
 }

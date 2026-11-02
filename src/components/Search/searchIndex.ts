@@ -47,6 +47,7 @@ const DOCS_BOOST = 0.6
 const NAV_META: Record<NavId, { description: MessageDescriptor, keywords: string }> = {
   temp: { description: msg`Set each side’s temperature`, keywords: 'temperature heat cool warm thermostat home now' },
   base: { description: msg`Raise or lower the adjustable base`, keywords: 'base bed elevation head feet incline tilt position' },
+  tonight: { description: msg`Each side tonight, past nights and Smart start settings`, keywords: 'smart start warm up reading mode nights in bed' },
   autopilot: { description: msg`Automations that adjust the bed for you`, keywords: 'automation automations rules smart' },
   schedule: { description: msg`Temperature curves, power and alarms`, keywords: 'curve curves alarm alarms wake bedtime timer program' },
   sleep: { description: msg`Nights, sleep stages and vitals`, keywords: 'nights history hypnogram stages data' },

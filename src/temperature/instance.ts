@@ -11,6 +11,7 @@ import { fahrenheitToLevel, MAX_TEMP, MIN_TEMP, type Side } from '@/src/hardware
 import { activeSleeperSides, scheduleSourceSide, type BedConfiguration } from '@/src/lib/singleSleeper'
 import { broadcastMutationStatus } from '@/src/streaming/broadcastMutationStatus'
 import { nightRows, type NightPower } from '@/src/lib/nightDay'
+import { defaultHoldMs } from '@/src/fork/holds'
 import { alarmTemperatureTargets, recurringTarget, sessionTarget, type AlarmOccurrenceCache, type RecurringOccurrenceCache, type WeeklyTarget } from './baseline'
 import { TemperatureController, type TemperatureRequest } from './controller'
 
@@ -141,6 +142,7 @@ export function getTemperatureController(): TemperatureController {
         db.insert(temperatureHolds).values(values).onConflictDoUpdate({ target: temperatureHolds.side, set: values }).run()
       },
       readBaseline,
+      defaultHoldMs,
       // A device_state row left over from before a restart is not evidence of
       // a live session until the firmware has reported in. Gating here covers
       // every reconcile path (the automation engine's startup tick, scheduler

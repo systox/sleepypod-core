@@ -5,13 +5,15 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useScheduleActive } from '@/src/hooks/useScheduleActive'
 import { activeNavId, langFromPath, NAV_ITEMS } from './navItems'
+import { usePhoneTabHidden } from '@/src/components/Fork/usePhoneTabHidden'
 import { useBaseAvailable } from './useBaseAvailable'
 import { usePodHealth } from './usePodHealth'
 
 /** Phone bottom tab bar (< 900px). Respects the safe-area inset. */
 export function TabBar({ className }: { className?: string }) {
   const hasBase = useBaseAvailable()
-  const items = NAV_ITEMS.filter(item => item.id !== 'base' || hasBase)
+  const hidden = usePhoneTabHidden()
+  const items = NAV_ITEMS.filter(item => (item.id !== 'base' || hasBase) && item.id !== hidden)
   const pathname = usePathname()
   const lang = langFromPath(pathname)
   const active = activeNavId(pathname)

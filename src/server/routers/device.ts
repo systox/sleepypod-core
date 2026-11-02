@@ -17,6 +17,7 @@ import { withSideLock } from '@/src/hardware/sideLock'
 import { getTemperatureController, getTemperatureControlStatus } from '@/src/temperature/instance'
 import { getJobManager } from '@/src/scheduler'
 import { holdMinutesSchema, temperatureControlStatusSchema } from '@/src/temperature/schema'
+import { markPersonPower } from '@/src/fork/runtime'
 import {
   sideSchema,
   temperatureSchema,
@@ -436,6 +437,7 @@ export const deviceRouter = router({
         if (input.powered) {
           assertPumpStallNotBlocked(input.side)
         }
+        markPersonPower(input.side, input.powered)
         if (input.powered) {
           // The user wants the bed on: a power-off held for an alarm must
           // not switch it off once the alarm is over.

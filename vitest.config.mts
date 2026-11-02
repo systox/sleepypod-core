@@ -47,6 +47,7 @@ export default defineConfig({
       exclude: ['**/tests/**', '**/*.test.{ts,tsx}', '**/*.d.ts'],
     },
     name: 'unit',
+    setupFiles: ['./src/fork/tests/upstreamMocks.ts'],
     // Alarm/snooze state is persisted next to the database; keep tests that
     // exercise it without mocking from writing into the repo.
     env: {

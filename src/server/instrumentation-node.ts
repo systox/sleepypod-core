@@ -38,6 +38,7 @@ import { startAutoOnWatcher, stopAutoOnWatcher } from '@/src/services/autoOnWatc
 import { startDatabaseIntegrityChecks, stopDatabaseIntegrityChecks } from '@/src/db/integrity'
 import { startPerformanceMonitoring, stopPerformanceMonitoring, recordStartupPhase } from '@/src/lib/serverPerformance'
 import { shutdownHomeKit, startHomeKitIfEnabled } from '@/src/homekit'
+import { startForkService, stopForkService } from '@/src/fork/service'
 
 let isInitialized = false
 let isShuttingDown = false
@@ -123,6 +124,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
   catch (error) {
     console.error('Error shutting down HomeKit:', error)
   }
+
+  stopForkService()
 
   // Step 4: Stop auto-off / auto-on watchers (await in-flight power calls)
   try {
@@ -410,6 +413,8 @@ async function initializeBackgroundServices(): Promise<void> {
     }).catch((error) => {
       console.warn('WARNING: MQTT bridge failed to start:', error instanceof Error ? error.message : error)
     })
+
+    startForkService()
 
     // Start auto-off watcher (polls biometrics DB for bed-exit events)
     startAutoOffWatcher()

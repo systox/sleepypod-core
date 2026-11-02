@@ -61,7 +61,7 @@ export function useSideTemperature(
     commitTarget(f)
     mutateTemp(
       // 30 min is the server default; only send an explicit override.
-      { side, temperature: f, ...(holdMinutes === 30 ? {} : { holdMinutes }) },
+      { side, temperature: f, ...(holdMinutes === 30 || holdMinutes === 0 ? {} : { holdMinutes }) },
       {
         onSettled: () => { void refetch() },
         onError: () => discardTarget(),

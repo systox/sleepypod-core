@@ -80,7 +80,7 @@ export function toClaim(row: CurveRow): LibraryCurveClaim {
 }
 
 /** Write `curve` on `side` for `targetDays` and clear `clearDays`; other days and alarms are untouched. */
-function writeSide(tx: Tx, curve: Pick<CurveRow, 'points' | 'endAction' | 'notes'>, side: LibrarySide, targetDays: DayOfWeek[], clearDays: DayOfWeek[], ops: SchedulerOps) {
+export function writeSide(tx: Tx, curve: Pick<CurveRow, 'points' | 'endAction' | 'notes'>, side: LibrarySide, targetDays: DayOfWeek[], clearDays: DayOfWeek[], ops: SchedulerOps) {
   const existing = {
     temperature: tx.select({ id: temperatureSchedules.id, dayOfWeek: temperatureSchedules.dayOfWeek })
       .from(temperatureSchedules).where(eq(temperatureSchedules.side, side)).all(),

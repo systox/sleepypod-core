@@ -31,6 +31,10 @@ import { ScheduleToggle } from './ScheduleToggle'
 import { SchedulerConfirmation } from './SchedulerConfirmation'
 import { AlarmSection } from './AlarmSection'
 import { curveSlug, formatDayRange, parseCurveSlug, sameDays } from './scheduleFormat'
+import { BothRotation } from '@/src/components/Fork/BothRotation'
+import { RotationCard } from '@/src/components/Fork/RotationCard'
+import { SwitchCard } from '@/src/components/Fork/SwitchCard'
+import { WeeksSection } from '@/src/components/Fork/WeeksSection'
 
 interface EditingCurve {
   days: DayOfWeek[]
@@ -400,6 +404,8 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
             </Card>
           )}
 
+          {both ? <BothRotation names={names} /> : <RotationCard side={side} sideName={names[side]} />}
+
           {both && hasAnyCurves && (
             <>
               <BothNightView temps={bothTemps} power={bothPower} names={names} />
@@ -436,6 +442,8 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
             </div>
           )}
 
+          <WeeksSection />
+
           {(hasAnyCurves || libraryCurves.length > 0) && (
             <>
               <SectionLabel className="mt-1">Curves</SectionLabel>
@@ -466,6 +474,7 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
         </div>
 
         <div className="flex min-w-0 flex-col gap-3">
+          {!both && <SwitchCard side={side} />}
           <AlarmSection side={side} selectedSide={selectedSide} />
           <SchedulerStatus sideLabel={sideLabel} next={next} />
         </div>

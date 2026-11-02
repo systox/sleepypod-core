@@ -17,6 +17,7 @@
  * across off-cycles.
  */
 
+import { markPersonPower } from '@/src/fork/runtime'
 import { HapStatusError } from 'hap-nodejs'
 import type { HAPStatus } from 'hap-nodejs'
 import type { DacMonitor } from '@/src/hardware/dacMonitor'
@@ -232,6 +233,7 @@ export async function setSidePowerOn(monitor: DacMonitor, side: Side): Promise<v
       // switch it off once the alarm is over.
       const jobManager = await getJobManager()
       jobManager.releaseHeldPowerOff(side)
+      markPersonPower(side, true)
       await logged(
         `setPower(${side}, true, ${target})`,
         () => getTemperatureController().setManualLocked(side, target),
@@ -256,6 +258,7 @@ export async function setSidePowerOff(monitor: DacMonitor, side: Side): Promise<
     await withSideLock(side, () => logged(
       `setPower(${side}, false)`,
       () => {
+        markPersonPower(side, false)
         return getTemperatureController().powerOffLocked(side)
       },
     ))

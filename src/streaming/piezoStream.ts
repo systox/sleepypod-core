@@ -51,6 +51,7 @@ import * as path from 'node:path'
 import { Decoder } from 'cbor-x'
 import { flushCapFrameWindows, recordCapFrame, resetCapFrameWindows } from './capFramePersistence'
 import { capSideChannels, capSideStatus } from './normalizeFrame'
+import { observeCapFrame, observeSensorFrame } from '@/src/fork/frames'
 import { discoverSensorSource } from './sensorSourceDiscovery'
 import { recordSensorSource, recordFirstSensorFrame } from '@/src/lib/serverPerformance'
 import { natsReachable, startNatsFrameSource } from './natsFrameSource'
@@ -413,7 +414,7 @@ const ALL_SENSOR_TYPES = [
  * ts}, one per tap, including taps that stop an alarm) feeds the gesture
  * handler.
  */
-const SERVER_LISTENER_TYPES: ReadonlySet<string> = new Set(['frzHealth', 'tap-gesture'])
+const SERVER_LISTENER_TYPES: ReadonlySet<string> = new Set(['frzHealth', 'tap-gesture', 'button-press'])
 
 /** Valid sensor type string. Used for subscription filtering. */
 type SensorType = typeof ALL_SENSOR_TYPES[number]
@@ -1027,6 +1028,8 @@ function dispatchSensorFrame(frame: Record<string, unknown>, backlog = false): v
     }
   }
 
+  if (!backlog) observeSensorFrame(frame)
+
   // Notify server-side listeners (flow data, tap gestures).
   if (SERVER_LISTENER_TYPES.has(frameType) && serverFrameListeners.size > 0) {
     for (const cb of serverFrameListeners) {
@@ -1059,6 +1062,7 @@ function dispatchSensorFrame(frame: Record<string, unknown>, backlog = false): v
       }
       recordCapFrame('left', left, ts, capSideStatus(rawLeft))
       recordCapFrame('right', right, ts, capSideStatus(rawRight))
+      if (!backlog) observeCapFrame(left, right)
     }
   }
 }

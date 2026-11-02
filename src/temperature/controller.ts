@@ -1,4 +1,5 @@
 import { MAX_TEMP, MIN_TEMP, type Side } from '@/src/hardware/types'
+import { smartOwnsSide } from '@/src/fork/runtime'
 
 export class TemperatureBlockedError extends Error {
   constructor() {
@@ -46,6 +47,8 @@ export interface TemperatureControllerDeps {
   readHardwareDeadline: (side: Side) => number | null
   writeHardwareDeadline: (side: Side, deadline: number | null) => void
   isBlocked: (side: Side) => boolean
+  /** How long a change with no named length holds. Undefined uses DEFAULT_HOLD_MS. */
+  defaultHoldMs?: (side: Side) => number | undefined
   /** Must connect before returning; selection and safety are rechecked afterward. */
   connect: () => Promise<void>
   /** Hardware write + state mirror; the caller already owns the side lock. */
@@ -130,11 +133,12 @@ export class TemperatureController {
     ], now)
   }
 
-  async setManual(side: Side, temperature: number, holdMs = DEFAULT_HOLD_MS, durationSec?: number): Promise<TemperatureControlStatus> {
+  async setManual(side: Side, temperature: number, holdMs?: number, durationSec?: number): Promise<TemperatureControlStatus> {
     return this.deps.withSideLock(side, () => this.setManualLocked(side, temperature, holdMs, durationSec))
   }
 
-  async setManualLocked(side: Side, temperature: number, holdMs = DEFAULT_HOLD_MS, durationSec?: number): Promise<TemperatureControlStatus> {
+  async setManualLocked(side: Side, temperature: number, holdMsOverride?: number, durationSec?: number): Promise<TemperatureControlStatus> {
+    const holdMs = holdMsOverride ?? this.deps.defaultHoldMs?.(side) ?? DEFAULT_HOLD_MS
     if (!Number.isFinite(temperature) || temperature < MIN_TEMP || temperature > MAX_TEMP) {
       throw new Error('Temperature outside hardware bounds')
     }
@@ -263,11 +267,17 @@ export class TemperatureController {
       const live = requests.filter(r => r.source === 'autopilot' && isLiveRequest(r, this.deps.now()))
       this.requests[side] = new Map(live.map(r => [r.id, { ...r }]))
       const selected = this.select(side, this.deps.now())
-      if (selected && powerOnIds.includes(selected.id) && !this.deps.isBlocked(side)) {
+      if (selected && powerOnIds.includes(selected.id) && !this.deps.isBlocked(side) && !smartOwnsSide(side)) {
         return this.powerOnLocked(side, 75, isCurrent)
       }
       return this.reconcileLocked(side, false, isCurrent)
     })
+  }
+
+  /** The scheduled or run-once target underneath any hold, or null with neither. */
+  baselineTarget(side: Side): number | null {
+    const now = this.deps.now()
+    return selectTemperatureRequest(this.deps.readBaseline(side, now), now)?.temperature ?? null
   }
 
   /** Relative rules use the scheduled/session baseline, never their own output or a manual hold. */

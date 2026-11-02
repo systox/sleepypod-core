@@ -156,7 +156,7 @@ describe('startNatsFrameSource', () => {
   })
 
   it('excludes raw.log from the live subscriptions', () => {
-    expect(SUBSCRIBE_SUBJECTS).toEqual(['raw.sens.>', 'raw.frz.>'])
+    expect(SUBSCRIBE_SUBJECTS).toEqual(['raw.sens.>', 'raw.frz.>', 'raw.pillow.>'])
     expect(SUBSCRIBE_SUBJECTS as readonly string[]).not.toContain('raw.log')
   })
 

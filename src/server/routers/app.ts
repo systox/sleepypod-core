@@ -22,6 +22,7 @@ import { sleepStagesRouter } from './sleepStages'
 import { curveTemplatesRouter } from './curveTemplates'
 import { biometricTuningRouter } from './biometricTuning'
 import { biometricShadowRouter } from './biometricShadow'
+import { forkRouter } from './fork'
 
 export const appRouter = router({
   healthcheck: publicProcedure
@@ -55,6 +56,7 @@ export const appRouter = router({
   curveTemplates: curveTemplatesRouter,
   biometricTuning: biometricTuningRouter,
   biometricShadow: biometricShadowRouter,
+  fork: forkRouter,
 })
 
 export type AppRouter = typeof appRouter

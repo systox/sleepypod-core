@@ -52,6 +52,15 @@ export function nightCurve(temps: TempRow[] | undefined, midnight: Date): CurveP
   }))
 }
 
+/** Swap the night a running Smart start copy belongs to for that moved copy. */
+export function withRunCurve(curves: CurvePoint[][], moved: CurvePoint[] | null): CurvePoint[][] {
+  if (!moved) return curves
+  const start = moved[0].at
+  const distance = (curve: CurvePoint[]) => (curve.length === 0 ? Infinity : Math.abs(curve[0].at - start))
+  const nearest = curves.reduce((best, curve, i) => (distance(curve) < distance(curves[best]) ? i : best), 0)
+  return curves.map((curve, i) => (i === nearest ? moved : curve))
+}
+
 export interface SleepRecordLike {
   enteredBedAt: Date
   leftBedAt: Date | null

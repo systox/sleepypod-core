@@ -1,5 +1,6 @@
 'use client'
 
+import { useRunCurve } from '@/src/components/Fork/useRunCurve'
 import { formatClock } from '@/src/lib/timeFormat'
 import { useTimeFormat } from '@/src/providers/TimeFormatProvider'
 
@@ -20,7 +21,7 @@ import { formatSetpointF, type TempUnit } from '@/src/lib/tempUtils'
 import type { Side } from '@/src/providers/SideProvider'
 import { trpc } from '@/src/utils/trpc'
 import {
-  nextPoint, nightCurve, nightMismatch, powerIntervals, presenceIntervals, targetAt, tempRange, timelineWindow,
+  nextPoint, nightCurve, nightMismatch, powerIntervals, presenceIntervals, targetAt, tempRange, timelineWindow, withRunCurve,
   type CurvePoint, type Interval, type TimelineWindow,
 } from './timelineLogic'
 
@@ -165,7 +166,8 @@ function SideRows({ side, win, now, unit, pct, hoverT }: {
   )
   const history = trpc.health.thermalHistory.useQuery({ range: '24h' }, { staleTime: 60_000, refetchInterval: 60_000 })
 
-  const curves = win.nights.map(n => nightCurve(schedules.data?.temperature, n.midnight))
+  const moved = useRunCurve(side)
+  const curves = withRunCurve(win.nights.map(n => nightCurve(schedules.data?.temperature, n.midnight)), moved)
   const range = tempRange(curves)
   const presence = presenceIntervals(records.data, win.start, win.end, now)
   const power = history.data

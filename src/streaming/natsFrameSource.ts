@@ -37,7 +37,7 @@ const NATS_PORT = Number(process.env.PIEZO_NATS_PORT ?? 4222)
  * map every sensor subject carries) and it has no live consumer; sp-status reads
  * it as a JetStream point-fetch instead.
  */
-export const SUBSCRIBE_SUBJECTS = ['raw.sens.>', 'raw.frz.>'] as const
+export const SUBSCRIBE_SUBJECTS = ['raw.sens.>', 'raw.frz.>', 'raw.pillow.>'] as const
 
 // Never give up reconnecting. On a NATS-only pod there is no `.RAW` file to fall
 // back to, so a dropped connection must self-heal rather than strand the stream;
