@@ -87,7 +87,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: test
           # A PR carries base.ref; a merge-group run carries refs/heads/<base>.
-          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
+          # A push carries neither, so it compares against main.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || 'main' }}
 
       - name: Upload coverage reports to Codecov
         if: github.repository == 'sleepypod/core' && matrix.task.name == 'Unit Tests' && !cancelled()
