@@ -28,6 +28,7 @@ import { timeToDate, nowInTimezone } from './timeUtils'
 import { activeSleeperSides, type BedState, mirrorSideFor, scheduleSourceSide, singleSleeperSideFor } from '@/src/lib/singleSleeper'
 import { WakeWindows, slotBefore } from './wakeWindow'
 import { ALARM_HOLD_AFTER_MIN, alarmWarmupMinutes } from '@/src/temperature/baseline'
+import { nightDay, nightPowerKey, type NightPower } from '@/src/lib/nightDay'
 
 const HEARTBEAT_INTERVAL_MS_DEFAULT = 60_000
 const HEARTBEAT_STALE_MS_DEFAULT = 90_000
@@ -54,6 +55,8 @@ export class JobManager {
   private lastHeartbeatReloadAt = 0
 
   private readonly wakeWindows = new WakeWindows()
+
+  private readonly nightPower = new Map<string, NightPower & { id: number }>()
 
   constructor(timezone: string, options: JobManagerOptions = {}) {
     this.scheduler = new Scheduler({
@@ -288,6 +291,11 @@ export class JobManager {
       }
     }
 
+    // Power rows first: a temperature row's weekday depends on its day's power row.
+    const powSchedules = await db.select().from(powerSchedules)
+    this.nightPower.clear()
+    for (const row of powSchedules) this.rememberNightPower(row)
+
     // Load temperature schedules
     const tempSchedules = await db.select().from(temperatureSchedules)
     for (let i = 0; i < tempSchedules.length; i++) {
@@ -298,7 +306,6 @@ export class JobManager {
     }
 
     // Load power schedules
-    const powSchedules = await db.select().from(powerSchedules)
     for (let i = 0; i < powSchedules.length; i++) {
       if (powSchedules[i].enabled) {
         this.schedulePowerOn(powSchedules[i])
@@ -468,7 +475,8 @@ export class JobManager {
     sched: typeof temperatureSchedules.$inferSelect
   ): void {
     const [hour, minute] = this.parseTime(sched.time)
-    const cron = this.buildWeeklyCron(sched.dayOfWeek, hour, minute)
+    const power = this.nightPower.get(nightPowerKey(sched.side, sched.dayOfWeek))
+    const cron = this.buildWeeklyCron(nightDay(sched.dayOfWeek, sched.time, power), hour, minute)
 
     this.scheduler.scheduleJob(
       `temp-${sched.id}`,
@@ -498,7 +506,7 @@ export class JobManager {
    */
   private schedulePowerOn(sched: typeof powerSchedules.$inferSelect): void {
     const [hour, minute] = this.parseTime(sched.onTime)
-    const cron = this.buildWeeklyCron(sched.dayOfWeek, hour, minute)
+    const cron = this.buildWeeklyCron(nightDay(sched.dayOfWeek, sched.onTime, sched), hour, minute)
 
     this.scheduler.scheduleJob(
       `power-on-${sched.id}`,
@@ -540,7 +548,7 @@ export class JobManager {
   private schedulePowerOff(sched: typeof powerSchedules.$inferSelect): void {
     if (sched.endAction === 'maintain') return
     const [hour, minute] = this.parseTime(sched.offTime)
-    const cron = this.buildWeeklyCron(sched.dayOfWeek, hour, minute)
+    const cron = this.buildWeeklyCron(nightDay(sched.dayOfWeek, sched.offTime, sched), hour, minute)
 
     this.scheduler.scheduleJob(
       `power-off-${sched.id}`,
@@ -1136,11 +1144,20 @@ export class JobManager {
     // Maintaining must also cancel a shutdown already deferred for an alarm.
     if (!sched.enabled || sched.endAction === 'maintain') this.cancelPowerJob(sched.id)
     if (!sched.enabled) return
+    this.rememberNightPower(sched)
     this.schedulePowerOn(sched)
     this.schedulePowerOff(sched)
   }
 
+  private rememberNightPower(sched: typeof powerSchedules.$inferSelect): void {
+    if (!sched.enabled) return
+    this.nightPower.set(nightPowerKey(sched.side, sched.dayOfWeek), { id: sched.id, onTime: sched.onTime, offTime: sched.offTime })
+  }
+
   cancelPowerJob(id: number): void {
+    for (const [key, power] of this.nightPower) {
+      if (power.id === id) this.nightPower.delete(key)
+    }
     this.scheduler.cancelJob(`power-on-${id}`)
     this.scheduler.cancelJob(`power-off-${id}`)
     for (const side of ['left', 'right'] as const) {

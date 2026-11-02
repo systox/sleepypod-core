@@ -40,12 +40,12 @@ export function timelineWindow(now: Date): TimelineWindow {
 }
 
 /**
- * A night's set points on absolute time. A curve saved entirely before noon
+ * A night's set points on absolute time. A curve that starts before noon
  * belongs to the morning after `midnight` (same rule as the Scheduler lanes).
  */
 export function nightCurve(temps: TempRow[] | undefined, midnight: Date): CurvePoint[] {
   const tl = buildTimeline(nightSetPoints(temps, DAYS_OF_WEEK[midnight.getDay()]))
-  const shift = tl.length > 0 && tl[tl.length - 1].minutes < HALF_DAY_MIN ? 24 * 60 : 0
+  const shift = tl.length > 0 && tl[0].minutes < HALF_DAY_MIN ? 24 * 60 : 0
   return tl.map(p => ({
     at: new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes + shift).getTime(),
     temperature: p.temperature,

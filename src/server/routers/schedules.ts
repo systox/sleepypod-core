@@ -782,8 +782,8 @@ export const schedulesRouter = router({
           for (const id of input.deletes.temperature) jm.cancelTemperatureJob(id)
           for (const id of input.deletes.power) jm.cancelPowerJob(id)
           for (const id of input.deletes.alarm) jm.cancelAlarmJob(id)
-          for (const row of upsertTemp) jm.upsertTemperatureJob(row)
           for (const row of upsertPower) jm.upsertPowerJob(row)
+          for (const row of upsertTemp) jm.upsertTemperatureJob(row)
           for (const row of upsertAlarm) jm.upsertAlarmJob(row)
         })
 

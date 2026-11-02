@@ -10,6 +10,7 @@ import { withSideLock } from '@/src/hardware/sideLock'
 import { fahrenheitToLevel, MAX_TEMP, MIN_TEMP, type Side } from '@/src/hardware/types'
 import { activeSleeperSides, scheduleSourceSide, type BedConfiguration } from '@/src/lib/singleSleeper'
 import { broadcastMutationStatus } from '@/src/streaming/broadcastMutationStatus'
+import { nightRows, type NightPower } from '@/src/lib/nightDay'
 import { alarmTemperatureTargets, recurringTarget, sessionTarget, type AlarmOccurrenceCache, type RecurringOccurrenceCache, type WeeklyTarget } from './baseline'
 import { TemperatureController, type TemperatureRequest } from './controller'
 
@@ -60,7 +61,7 @@ function readBaseline(side: Side, now: number): TemperatureRequest[] {
   if (source) {
     const alarms = statement('select id, day_of_week as dayOfWeek, time, alarm_temperature as temperature, wake_window as wakeWindow, duration from alarm_schedules where side = ? and enabled = 1').all(source) as (WeeklyRow & { wakeWindow: number, duration: number })[]
     const temps = statement('select id, day_of_week as dayOfWeek, time, temperature from temperature_schedules where side = ? and enabled = 1').all(source) as WeeklyRow[]
-    const powers = statement('select id, day_of_week as dayOfWeek, on_time as time, on_temperature as temperature from power_schedules where side = ? and enabled = 1').all(source) as WeeklyRow[]
+    const powers = statement('select id, day_of_week as dayOfWeek, on_time as time, off_time as offTime, on_temperature as temperature from power_schedules where side = ? and enabled = 1').all(source) as (WeeklyRow & { offTime: string })[]
     // Alarm temperatures have their own bounded warm-up/hold spans.
     const rows: WeeklyTarget[] = [
       ...temps.map(r => ({ id: `temperature:${r.id}`, dayOfWeek: r.dayOfWeek, time: r.time, temperature: r.temperature })),
@@ -68,7 +69,8 @@ function readBaseline(side: Side, now: number): TemperatureRequest[] {
     ]
     const key = JSON.stringify([timezone, Math.floor(now / 60_000), rows])
     const cached = recurringCache[side]
-    const baseline = cached?.key === key ? cached.target : recurringTarget(rows, timezone, now, occurrenceCaches[side])
+    const powerByDay = new Map<string, NightPower>(powers.map(r => [r.dayOfWeek, { onTime: r.time, offTime: r.offTime }]))
+    const baseline = cached?.key === key ? cached.target : recurringTarget(nightRows(rows, powerByDay), timezone, now, occurrenceCaches[side])
     recurringCache[side] = { key, target: baseline }
     if (baseline) requests.push(baseline)
     requests.push(...alarmTemperatureTargets(

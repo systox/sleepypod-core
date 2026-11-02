@@ -95,8 +95,8 @@ export function sortChronological(points: SetPoint[]): SetPoint[] {
  * the next set point fires, so those rows change nothing; each run keeps its
  * first and last point so the curve keeps its shape. Two rows inside a run
  * still matter and stay:
- * - the first one after midnight: rows fire on their own weekday, so it
- *   follows the previous day's evening, which may hold another temperature;
+ * - the first one after midnight: it marks where a night's morning begins,
+ *   and days with different curves rely on it;
  * - any whose removal leaves more than 12h between neighbours, which
  *   sortChronological would then read as an overnight wrap.
  */

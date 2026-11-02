@@ -65,8 +65,9 @@ export async function applySchedulerOps(ops: SchedulerOps): Promise<void> {
   await applyScheduler((jm) => {
     for (const id of ops.cancelTemperature) jm.cancelTemperatureJob(id)
     for (const id of ops.cancelPower) jm.cancelPowerJob(id)
-    for (const row of ops.upsertTemperature) jm.upsertTemperatureJob(row)
+    // Power first: a temperature row's weekday depends on its day's power row.
     for (const row of ops.upsertPower) jm.upsertPowerJob(row)
+    for (const row of ops.upsertTemperature) jm.upsertTemperatureJob(row)
   })
 }
 
