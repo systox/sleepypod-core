@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, pod5]
   pull_request:
     types: [opened, synchronize, reopened]
   # Merge queue: the required checks must also report on the temporary

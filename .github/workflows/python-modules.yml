@@ -2,7 +2,7 @@ name: Python Modules
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, pod5]
     paths:
       - 'modules/**/*.py'
       - 'modules/common/biometrics/*.json'
