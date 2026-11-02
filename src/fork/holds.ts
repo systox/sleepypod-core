@@ -164,7 +164,12 @@ export async function stepSmoothReturn(side: Side, now = Date.now()): Promise<vo
   })
 }
 
-export function fadeOf(side: Side): { startedAt: number, curve: number | null } | null {
-  const fade = fades.get(side)
-  return fade ? { startedAt: fade.startedAt, curve: getTemperatureController().baselineTarget(side) } : null
+/** A running fade: the curve it's easing back to, and when it should get there. */
+export function fadeOf(side: Side, now = Date.now()): { curve: number, by: number } | null {
+  if (!fades.has(side)) return null
+  const controller = getTemperatureController()
+  const curve = controller.baselineTarget(side)
+  const held = controller.status(side).targetTemperature
+  if (curve === null || held === null) return null
+  return { curve, by: now + Math.abs(curve - held) * 60 / getPodSettings().smoothRatePerHour * MINUTE }
 }

@@ -7,7 +7,7 @@ export interface SideView {
   settings: ForkSideSettings
   run: RunState
   presence: { occupied: boolean | null, since: number | null }
-  fade: { startedAt: number, curve: number | null } | null
+  fade: { curve: number, by: number } | null
   tonight: { bedtime: number, windowStart: number, windowEnd: number, points: Array<{ offset: number, temperature: number }> } | null
   upcoming: { bedtime: number, windowStart: number, windowEnd: number, firstTemperature: number } | null
   rotation: { thisPresetId: string } | null

@@ -4,7 +4,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMemo } from 'react'
 import { Button, Card, InlineError, PageHeader, SectionLabel, SegmentedControl, Skeleton, StatusDot } from '@/src/components/ds'
 import { useSideNames } from '@/src/hooks/useSideNames'
+import { useTemperatureUnit } from '@/src/hooks/useTemperatureUnit'
 import type { Side } from '@/src/hardware/types'
+import { formatSetpointF } from '@/src/lib/tempUtils'
 import { formatClock } from '@/src/lib/timeFormat'
 import { useTimeFormat } from '@/src/providers/TimeFormatProvider'
 import { trpc } from '@/src/utils/trpc'
@@ -26,6 +28,7 @@ function SideCard({ side, name, view, now }: { side: Side, name: string, view: S
   const timeFormat = useTimeFormat()
   const weeks = trpc.fork.listWeeks.useQuery()
   const command = trpc.fork.command.useMutation({ onSuccess: refresh })
+  const { unit } = useTemperatureUnit()
   const clock = (at: number) => formatClock(at, timeFormat)
   const { run } = view
   const running = run.phase === 'running' || run.phase === 'reading' || run.phase === 'warming'
@@ -41,7 +44,9 @@ function SideCard({ side, name, view, now }: { side: Side, name: string, view: S
         {weekName && <span className="ml-auto font-mono text-xs text-fg-2">{weekName}</span>}
       </div>
       <span className="text-[15px] font-medium">{describeSide(view, now, clock)}</span>
-      {step && <span className="text-[13px] text-fg-2">{`Next: ${step.temperature}° at ${clock(step.at)}`}</span>}
+      {view.fade
+        ? <span className="text-[13px] text-fg-2">{`Easing back to ${formatSetpointF(view.fade.curve, unit)} by ${clock(view.fade.by)}`}</span>
+        : step && <span className="text-[13px] text-fg-2">{`Next: ${formatSetpointF(step.temperature, unit)} at ${clock(step.at)}`}</span>}
       {run.note && <span className="text-[13px] text-fg-2">{run.note}</span>}
       <TonightChart side={side} view={view} now={now} />
       {view.settings.smartStart && (
@@ -84,6 +89,11 @@ export function TonightPage() {
       {error && <Card><InlineError>{`Failed to load: ${error.message}`}</InlineError></Card>}
       {health && (health.disabled || !health.running) && (
         <Card><InlineError>{health.disabled ?? 'The service isn\'t running, so the weekly schedule is in charge.'}</InlineError></Card>
+      )}
+      {data && (data.left.settings.smartStart || data.right.settings.smartStart) && (data.dailyJobs.prime || data.dailyJobs.reboot) && (
+        <Card>
+          <InlineError>Daily priming or reboot is on. They run at fixed times without checking the bed, so they can land on someone&apos;s sleep.</InlineError>
+        </Card>
       )}
       {data && view === 'tonight' && (
         <>

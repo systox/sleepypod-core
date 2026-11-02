@@ -17,6 +17,7 @@ const side = (otherSideShare: number) => ({
 export const fork: DemoHandlers<'fork'> = {
   overview: () => ({
     now: Date.now(),
+    dailyJobs: { prime: false, reboot: false },
     health: { running: true, disabled: null, sensorsFresh: true, lastBeat: Date.now() },
     pod: DEFAULT_POD_SETTINGS,
     left: side(DEFAULT_SIDE_SETTINGS.otherSideShare),

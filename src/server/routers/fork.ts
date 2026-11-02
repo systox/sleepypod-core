@@ -51,8 +51,10 @@ export const forkRouter = router({
     .input(z.object({}).optional())
     .query(() => {
       const now = Date.now()
+      const device = db.select().from(deviceSettings).limit(1).all()[0]
       return {
         now,
+        dailyJobs: { prime: Boolean(device?.primePodDaily), reboot: Boolean(device?.rebootDaily) },
         health: serviceHealth(),
         pod: getPodSettings(),
         left: sideView('left', now),
