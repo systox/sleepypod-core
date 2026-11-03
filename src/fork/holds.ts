@@ -110,6 +110,9 @@ export function observePress(frame: Record<string, unknown>): void {
       continue
     }
     if (press?.button !== 'top' && press?.button !== 'bottom') continue
+    // The firmware changes temperature only on a held press; it ignores a
+    // short click, so the fork must too, or a brushed button holds the curve.
+    if (press.type === 'short') continue
     const waiting = presses.get(side)
     if (waiting) clearTimeout(waiting.timer)
     const wasOn = waiting?.wasOn ?? getTemperatureController().status(side).blocked === null

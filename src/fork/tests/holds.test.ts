@@ -26,7 +26,7 @@ vi.mock('@/src/db', () => ({
 
 import { closeStore, listEvents } from '../store'
 import { setPodSettings, setSideSettings } from '../settings'
-import { defaultHoldMs, settlePress, stepSmoothReturn } from '../holds'
+import { clearPressWaits, defaultHoldMs, observePress, settlePress, stepSmoothReturn } from '../holds'
 import { runtime } from '../runtime'
 
 const NOW = 1_000_000_000
@@ -90,6 +90,39 @@ describe('presses', () => {
     h.target = 79.6
     await settlePress('left', true, ['top'])
     expect(h.setManualLocked.mock.calls[0][1]).toBe(80)
+  })
+})
+
+describe('press reports from the cover', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    setPodSettings({ holdMinutes: 60 })
+    h.status = { source: 'schedule', holdUntil: null, blocked: null, targetTemperature: 84, requestId: 'x' }
+    h.target = 87
+  })
+  afterEach(() => {
+    clearPressWaits()
+    vi.useRealTimers()
+  })
+
+  it('holds after a held press, which the firmware acts on', async () => {
+    observePress({ type: 'button-press', left: { button: 'top', type: 'long', count: 1 } })
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 87, 60 * MIN)
+    expect(listEvents(0, Date.now() + 1, ['press'])).toHaveLength(1)
+  })
+
+  it('ignores a short click, which the firmware ignores too', async () => {
+    observePress({ type: 'button-press', left: { button: 'top', type: 'short', count: 1 } })
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(h.setManualLocked).not.toHaveBeenCalled()
+    expect(listEvents(0, Date.now() + 1, ['press'])).toHaveLength(0)
+  })
+
+  it('still counts a press that arrives without a type', async () => {
+    observePress({ type: 'button-press', left: { button: 'bottom', count: 1 } })
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(h.setManualLocked).toHaveBeenCalledOnce()
   })
 })
 
