@@ -326,10 +326,15 @@ describe('ending', () => {
   })
 
   it('stops at the backstop, which restarts after a long absence', () => {
-    const state = advance(started(entered), entered + MIN, 14 * 60 - 1).state
-    const step = tick(state, ctx(entered + 14 * HOUR, { occupied: true }))
+    const state = advance(started(entered), entered + MIN, 16 * 60 - 1).state
+    const step = tick(state, ctx(entered + 16 * HOUR, { occupied: true }))
     expect(step.state.phase).toBe('closed')
     expect(step.events.map(e => e.kind)).toContain('backstop')
+  })
+
+  it('renews the 14-hour copy so a long curve reaches the backstop', () => {
+    const state = { ...advance(started(entered), entered + MIN, 13 * 60).state, copyEndsAt: entered + 14 * HOUR }
+    expect(kinds(tick(state, ctx(entered + 13.75 * HOUR, { occupied: true })).actions)).toEqual(['write'])
   })
 
   it('keeps a closed side closed whatever the sensors see', () => {
