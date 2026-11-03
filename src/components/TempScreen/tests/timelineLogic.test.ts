@@ -32,9 +32,9 @@ describe('nightCurve', () => {
       { at: at(28, 7), temperature: 84 },
     ])
   })
-  it('moves a curve saved entirely after midnight to the next morning', () => {
-    const early = [row('sunday', '01:00', 70), row('sunday', '06:00', 82)]
-    expect(nightCurve(early, new Date(2026, 8, 27)).map(p => p.at)).toEqual([at(28, 1), at(28, 6)])
+  it('keeps a curve that starts after midnight on its own day', () => {
+    const early = [row('sunday', '04:00', 70), row('sunday', '15:00', 82)]
+    expect(nightCurve(early, new Date(2026, 8, 27)).map(p => p.at)).toEqual([at(27, 4), at(27, 15)])
   })
   it('is empty without enabled points for that day', () => {
     expect(nightCurve(temps, new Date(2026, 8, 29))).toEqual([])

@@ -1,7 +1,6 @@
 import { buildTimeline } from '@/src/components/Schedule/CurveChart'
 import { nightSetPoints, type TempRow } from '@/src/components/Schedule/bothNight'
 import { tonightWindow } from '@/src/components/diagnostics/dashboardLogic'
-import { nightOrder } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK } from '@/src/lib/scheduleTime'
 
 const MINUTE = 60_000
@@ -44,7 +43,7 @@ export function timelineWindow(now: Date): TimelineWindow {
  * belongs to the morning after `midnight` (same rule as the Scheduler lanes).
  */
 export function nightCurve(temps: TempRow[] | undefined, midnight: Date): CurvePoint[] {
-  return nightOrder(buildTimeline(nightSetPoints(temps, DAYS_OF_WEEK[midnight.getDay()]))).map(p => ({
+  return buildTimeline(nightSetPoints(temps, DAYS_OF_WEEK[midnight.getDay()])).map(p => ({
     at: new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes).getTime(),
     temperature: p.temperature,
   }))

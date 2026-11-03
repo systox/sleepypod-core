@@ -45,7 +45,7 @@ export function BothNightView({ temps, power, names }: BothNightViewProps) {
     const windows = withPoints.map(l => nightWindow(l.setPoints, midnight)).filter(w => w !== null)
     const first = windows.reduce<Date | null>((a, w) => (!a || w.start < a ? w.start : a), null)
     const last = windows.reduce<Date | null>((a, w) => (!a || w.end > a ? w.end : a), null)
-    meta = formatNightDates(midnight)
+    meta = formatNightDates(midnight, last)
     if (first && now < first) meta += ` · starts in ${formatCountdown(first.getTime() - now.getTime())}`
     else if (first && last && now < last) {
       meta += ` · ends in ${formatCountdown(last.getTime() - now.getTime())}`

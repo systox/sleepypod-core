@@ -7,6 +7,7 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, 
 import { cn } from '@/lib/utils'
 import { useTemperatureUnit } from '@/src/hooks/useTemperatureUnit'
 
+import { nightOrder } from '@/src/lib/nightDay'
 import { formatSetpointF } from '@/src/lib/tempUtils'
 import { NEUTRAL_TEMP_F, TONE_VAR, tempTone } from './scheduleFormat'
 
@@ -37,7 +38,6 @@ export interface BedSample {
 }
 
 const DAY = 24 * 60
-const HALF_DAY = 12 * 60
 const TEMP_MIN_F = 55
 const TEMP_MAX_F = 110
 /** Bed samples further apart than this break the measured line (missing data shows as a gap). */
@@ -55,24 +55,11 @@ export function minutesToTime(minutes: number): string {
 
 /**
  * Place set points on a continuous timeline, sorted chronologically. Schedules
- * that cross midnight (a gap > 12h between clock-sorted points) shift their
- * early-morning points by +24h — same rule as `sortChronological`.
+ * that cross midnight shift their later points by +24h — same rule as
+ * `sortChronological`.
  */
 export function buildTimeline<T extends CurveSetPoint>(points: T[]): TimelinePoint<T>[] {
-  const withMinutes = points.map(item => ({ item, minutes: toMinutes(item.time), temperature: item.temperature }))
-  const byClock = [...withMinutes].sort((a, b) => a.minutes - b.minutes)
-  let overnight = false
-  if (byClock.some(p => p.minutes < HALF_DAY) && byClock.some(p => p.minutes >= HALF_DAY)) {
-    for (let i = 0; i < byClock.length - 1; i++) {
-      if (byClock[i + 1].minutes - byClock[i].minutes > HALF_DAY) {
-        overnight = true
-        break
-      }
-    }
-  }
-  return withMinutes
-    .map(p => (overnight && p.minutes < HALF_DAY ? { ...p, minutes: p.minutes + DAY } : p))
-    .sort((a, b) => a.minutes - b.minutes)
+  return nightOrder(points.map(item => ({ item, minutes: toMinutes(item.time), temperature: item.temperature })))
 }
 
 /**

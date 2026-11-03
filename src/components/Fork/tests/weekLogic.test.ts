@@ -1,25 +1,39 @@
 import { describe, expect, it } from 'vitest'
-import { anchorAfter, barFor, dayDate, EMPTY_WEEK, makeThisWeek, mondayOf, moveStep, repeatText, sparkline, stepOf, weekDates, weekSummary } from '../weekLogic'
+import { anchorAfter, barsFor, dayBars, dayDate, EMPTY_WEEK, makeThisWeek, mondayOf, moveStep, repeatText, sparkline, stepOf, weekDates, weekSummary } from '../weekLogic'
 import { describeSide, groupNights, nextStep, type SideView } from '../tonightLogic'
 import { INITIAL_RUN } from '@/src/fork/smart/engine'
 import { DEFAULT_SIDE_SETTINGS } from '@/src/fork/settings'
 
 describe('week strip', () => {
-  it('places an evening curve across midnight on the 6 PM to 6 PM bar', () => {
-    expect(barFor({ bedtime: '22:30', wake: '06:30' })).toEqual({ top: expect.closeTo(18.75), height: expect.closeTo(33.33, 1) })
+  const overnight = { bedtime: '22:30', wake: '06:00' }
+  const morning = { bedtime: '06:00', wake: '15:00' }
+
+  it('places a morning curve on its own day', () => {
+    expect(barsFor(morning, undefined)).toEqual([{ top: 25, height: 37.5 }])
   })
 
-  it('places a morning curve lower on the bar', () => {
-    expect(barFor({ bedtime: '04:00', wake: '12:00' }).top).toBeCloseTo(41.67, 1)
-  })
-
-  it('keeps a curve past the bar\'s end on the bar', () => {
-    const bar = barFor({ bedtime: '12:00', wake: '20:00' })
+  it('runs an evening curve to the end of its day', () => {
+    const [bar] = barsFor(overnight, undefined)
+    expect(bar.top).toBeCloseTo(93.75)
     expect(bar.top + bar.height).toBeCloseTo(100)
   })
 
+  it('shows the end of the day before\'s curve', () => {
+    expect(barsFor(undefined, overnight)).toEqual([{ top: 0, height: 25 }])
+    expect(barsFor(overnight, overnight)).toHaveLength(2)
+  })
+
+  it('shows nothing from a day before that ended that day', () => {
+    expect(barsFor(undefined, morning)).toEqual([])
+  })
+
+  it('wraps Monday round to the Sunday before', () => {
+    const curves = new Map([[1, overnight]])
+    expect(dayBars({ ...EMPTY_WEEK, sunday: 1 }, 'monday', curves)).toEqual([{ top: 0, height: 25 }])
+  })
+
   it('is empty with no curve', () => {
-    expect(barFor(undefined)).toEqual({ top: 0, height: 0 })
+    expect(dayBars(EMPTY_WEEK, 'monday', new Map())).toEqual([])
   })
 })
 

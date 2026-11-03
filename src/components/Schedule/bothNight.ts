@@ -1,5 +1,4 @@
 import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
-import { nightOrder } from '@/src/lib/nightDay'
 import { buildTimeline } from './CurveChart'
 
 export interface TempRow {
@@ -26,7 +25,7 @@ export function nightDate(day: DayOfWeek, now: Date): Date {
 
 /** Absolute start/end of a night's curve, or null when it has no set points. */
 export function nightWindow(setPoints: Array<{ time: string, temperature: number }>, midnight: Date): { start: Date, end: Date } | null {
-  const tl = nightOrder(buildTimeline(setPoints))
+  const tl = buildTimeline(setPoints)
   if (tl.length === 0) return null
   const at = (m: number) => new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, m)
   return { start: at(tl[0].minutes), end: at(tl[tl.length - 1].minutes) }
@@ -42,7 +41,7 @@ export function nextSetPoint(temps: TempRow[] | undefined, now: Date): { at: Dat
   for (let offset = -1; offset < 8; offset++) {
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset)
     const day = DAYS_OF_WEEK[midnight.getDay()]
-    for (const p of nightOrder(buildTimeline(nightSetPoints(temps, day)))) {
+    for (const p of buildTimeline(nightSetPoints(temps, day))) {
       const at = new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes)
       if (at > now && (!best || at < best.at)) best = { at, time: p.item.time, temperature: p.temperature }
     }
@@ -58,10 +57,11 @@ export function formatCountdown(ms: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
-/** "Sep 28 → 29", or "Sep 30 → Oct 1" across a month boundary. */
-export function formatNightDates(midnight: Date): string {
+/** "Sep 28 → 29", "Sep 30 → Oct 1" across a month boundary, or "Sep 28" for a curve that ends that day. */
+export function formatNightDates(midnight: Date, end?: Date | null): string {
   const next = new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() + 1)
   const month = (d: Date) => d.toLocaleDateString('en-US', { month: 'short' })
+  if (end?.toDateString() === midnight.toDateString()) return `${month(midnight)} ${midnight.getDate()}`
   const tail = next.getMonth() === midnight.getMonth() ? `${next.getDate()}` : `${month(next)} ${next.getDate()}`
   return `${month(midnight)} ${midnight.getDate()} → ${tail}`
 }

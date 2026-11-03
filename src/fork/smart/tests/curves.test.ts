@@ -30,6 +30,12 @@ describe('curvePoints', () => {
     ])
   })
 
+  it('keeps every point of a curve that runs into the next afternoon', () => {
+    const power: PowerRow = { dayOfWeek: 'monday', onTime: '22:30', offTime: '14:00', onTemperature: 85 }
+    const rows = [{ dayOfWeek: 'monday' as const, time: '07:00', temperature: 84 }, { dayOfWeek: 'monday' as const, time: '14:00', temperature: 86 }]
+    expect(curvePoints(rows, power).at(-1)).toEqual({ offset: 930, temperature: 86 })
+  })
+
   it('leaves out points before power-on, which never ran', () => {
     const windDown = { dayOfWeek: 'monday' as const, time: '21:45', temperature: 70 }
     expect(curvePoints([...temps, windDown], powers[1]).some(p => p.temperature === 70)).toBe(false)
@@ -56,11 +62,11 @@ describe('windowsAround', () => {
     expect(windowsAround(temps, powers, 'UTC', utc(3, 20), wide).window?.curve.bedtime).toBe(utc(3, 22, 30))
   })
 
-  it('places a morning curve on the day after it is saved', () => {
-    const power: PowerRow = { dayOfWeek: 'monday', onTime: '05:00', offTime: '14:00', onTemperature: 84 }
+  it('places a morning curve on the day it starts', () => {
+    const power: PowerRow = { dayOfWeek: 'tuesday', onTime: '04:00', offTime: '15:00', onTemperature: 84 }
     const { window } = windowsAround([], [power], 'UTC', utc(3, 5), { hoursEarly: 3, hoursLate: 11 })
-    // 11-02 is a Monday, so Monday's curve runs early Tuesday 11-03.
-    expect(window?.curve.bedtime).toBe(utc(3, 5))
+    // 11-03 is a Tuesday.
+    expect(window?.curve.bedtime).toBe(utc(3, 4))
   })
 
   it('has nothing to offer with no curves', () => {
@@ -106,6 +112,14 @@ describe('buildCopy', () => {
     const copy = buildCopy(points, utc(2, 22, 30), now, utc(3, 11, 45), 'UTC')
     expect(copy.setPoints[0]).toEqual({ time: '21:45', temperature: 85 })
     expect(copy.setPoints[1]).toEqual({ time: '23:30', temperature: 84 })
+  })
+
+  it('holds the last temperature when a copy is renewed after the curve has run out', () => {
+    const zero = utc(2, 22, 30)
+    const now = zero + 13.75 * 60 * MIN
+    const copy = buildCopy(points, zero, now, zero + 16 * 60 * MIN, 'UTC')
+    expect(copy.setPoints).toEqual([{ time: '12:15', temperature: 85 }])
+    expect(copy.endsAt).toBe(zero + 16 * 60 * MIN)
   })
 
   it('never asks for more than 14 hours or 96 points', () => {

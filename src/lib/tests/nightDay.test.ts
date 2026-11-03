@@ -17,8 +17,8 @@ describe('nightOrder', () => {
     expect(order(22.5, 25, 31)).toEqual([22.5, 25, 31])
   })
 
-  it('puts a curve that starts in the morning on the next day', () => {
-    expect(order(4, 8, 12)).toEqual([28, 32, 36])
+  it('keeps a curve that starts in the morning on its own day', () => {
+    expect(order(4, 8, 15)).toEqual([4, 8, 15])
   })
 
   it('leaves an afternoon curve on its own day', () => {
@@ -28,6 +28,20 @@ describe('nightOrder', () => {
   it('keeps a long late curve whose biggest gap is under 12 hours in order', () => {
     expect(order(2, 8, 13, 22)).toEqual([22, 26, 32, 37])
     expect(order(2, 8, 19, 22)).toEqual([19, 22, 26, 32])
+  })
+
+  it('is not fooled by a flat stretch longer than the time off', () => {
+    expect(order(0, 2.75, 13.25, 14.5, 21.75, 22.5)).toEqual([21.75, 22.5, 24, 26.75, 37.25, 38.5])
+  })
+
+  it('keeps a long day curve on its own day', () => {
+    expect(order(4, 9, 17)).toEqual([4, 9, 17])
+    expect(order(8, 12, 18, 22)).toEqual([8, 12, 18, 22])
+  })
+
+  it('reads a gap of exactly 12 hours as the time off', () => {
+    expect(order(8, 12, 20)).toEqual([8, 12, 20])
+    expect(order(2, 8, 20)).toEqual([20, 26, 32])
   })
 
   it('copes with one point and none', () => {
@@ -47,9 +61,16 @@ describe('runsNextDay', () => {
     expect(runsNextDay('07:00', evening)).toBe(true)
   })
 
-  it('moves a whole curve that starts before noon', () => {
-    expect(runsNextDay('04:00', morning)).toBe(true)
-    expect(runsNextDay('12:00', morning)).toBe(true)
+  it('keeps a whole curve that starts before noon on its own day', () => {
+    expect(runsNextDay('04:00', morning)).toBe(false)
+    expect(runsNextDay('12:00', morning)).toBe(false)
+  })
+
+  it('moves the end of a curve that starts before noon and runs past midnight', () => {
+    const allDay = { onTime: '11:00', offTime: '02:00' }
+    expect(runsNextDay('11:00', allDay)).toBe(false)
+    expect(runsNextDay('23:00', allDay)).toBe(false)
+    expect(runsNextDay('02:00', allDay)).toBe(true)
   })
 
   it('follows an overnight curve past noon to its off time', () => {
@@ -70,7 +91,7 @@ describe('nightDay', () => {
   })
 
   it('names the calendar day a mixed week really fires on', () => {
-    expect(nightDay('monday', '04:00', morning)).toBe('tuesday')
+    expect(nightDay('monday', '04:00', morning)).toBe('monday')
     expect(nightDay('monday', '23:30', evening)).toBe('monday')
     expect(nightDay('monday', '07:00', evening)).toBe('tuesday')
   })

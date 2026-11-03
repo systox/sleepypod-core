@@ -33,7 +33,7 @@ afterEach(async () => {
 })
 afterAll(() => sqlite.close())
 
-describe('a curve fires on the night it belongs to', () => {
+describe('a curve fires from the day it starts', () => {
   it('fires an overnight curve\'s morning and off time the day after', async () => {
     const row = db.insert(powerSchedules).values({ ...power, onTime: '22:30', offTime: '07:00' }).returning().get()
     const evening = db.insert(temperatureSchedules).values({ side: 'left', dayOfWeek: 'monday', time: '23:45', temperature: 82, enabled: true }).returning().get()
@@ -45,11 +45,11 @@ describe('a curve fires on the night it belongs to', () => {
     expect(schedule(`temp-${morning.id}`)).toBe('0 2 * * 2')
   })
 
-  it('fires a curve that starts before noon the morning after', async () => {
-    const row = db.insert(powerSchedules).values({ ...power, onTime: '04:00', offTime: '12:00' }).returning().get()
+  it('fires a curve that starts before noon on its own day', async () => {
+    const row = db.insert(powerSchedules).values({ ...power, onTime: '04:00', offTime: '15:00' }).returning().get()
     await manager.loadSchedules()
-    expect(schedule(`power-on-${row.id}`)).toBe('0 4 * * 2')
-    expect(schedule(`power-off-${row.id}`)).toBe('0 12 * * 2')
+    expect(schedule(`power-on-${row.id}`)).toBe('0 4 * * 1')
+    expect(schedule(`power-off-${row.id}`)).toBe('0 15 * * 1')
   })
 
   it('keeps a lone temperature row on its own weekday', async () => {

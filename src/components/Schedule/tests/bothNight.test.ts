@@ -34,6 +34,12 @@ describe('bothNight', () => {
     expect(nextSetPoint([], NOW)).toBeNull()
   })
 
+  it('keeps a morning curve on its own day', () => {
+    const points = [{ time: '04:00', temperature: 84 }, { time: '15:00', temperature: 85 }]
+    expect(nightWindow(points, new Date(2026, 8, 29))).toEqual({ start: new Date(2026, 8, 29, 4), end: new Date(2026, 8, 29, 15) })
+    expect(formatNightDates(new Date(2026, 8, 29), new Date(2026, 8, 29, 15))).toBe('Sep 29')
+  })
+
   it('keeps a long late curve on the night it runs', () => {
     const points = [{ time: '22:00', temperature: 85 }, { time: '02:00', temperature: 81 }, { time: '08:00', temperature: 82 }, { time: '13:00', temperature: 84 }]
     expect(nightWindow(points, new Date(2026, 8, 28))).toEqual({ start: new Date(2026, 8, 28, 22), end: new Date(2026, 8, 29, 13) })

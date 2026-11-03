@@ -11,21 +11,33 @@ export const EMPTY_WEEK: WeekDays = {
 }
 
 const DAY_MIN = 24 * 60
-const BAR_START_MIN = 18 * 60
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/** Where a time sits on a day's bar, which runs 6 PM to 6 PM. */
-function barPosition(minutes: number): number {
-  return ((minutes - BAR_START_MIN + DAY_MIN) % DAY_MIN) / DAY_MIN * 100
-}
 
 export interface Bar { top: number, height: number }
 
-export function barFor(curve: Pick<SavedCurve, 'bedtime' | 'wake'> | undefined): Bar {
-  if (!curve) return { top: 0, height: 0 }
-  const top = barPosition(hhmmToMinutes(curve.bedtime))
-  const end = barPosition(hhmmToMinutes(curve.wake))
-  return { top, height: end > top ? end - top : 100 - top }
+type BarCurve = Pick<SavedCurve, 'bedtime' | 'wake'>
+
+const share = (minutes: number): number => minutes / DAY_MIN * 100
+const runsPastMidnight = (curve: BarCurve): boolean => hhmmToMinutes(curve.wake) <= hhmmToMinutes(curve.bedtime)
+
+/** What a day's bar, midnight to midnight, shows: the end of the day before's curve, then its own. */
+export function barsFor(curve: BarCurve | undefined, before: BarCurve | undefined): Bar[] {
+  const bars: Bar[] = []
+  if (before && runsPastMidnight(before)) bars.push({ top: 0, height: share(hhmmToMinutes(before.wake)) })
+  if (curve) {
+    const start = hhmmToMinutes(curve.bedtime)
+    const end = runsPastMidnight(curve) ? DAY_MIN : hhmmToMinutes(curve.wake)
+    bars.push({ top: share(start), height: share(end - start) })
+  }
+  return bars
+}
+
+export function dayBars(days: WeekDays, day: DayOfWeek, curves: ReadonlyMap<number, BarCurve>): Bar[] {
+  const curveOn = (d: DayOfWeek) => {
+    const id = days[d]
+    return id === null ? undefined : curves.get(id)
+  }
+  return barsFor(curveOn(day), curveOn(WEEK_DAYS[(WEEK_DAYS.indexOf(day) + 6) % 7]))
 }
 
 /** "Mon · Late Monday, Tue–Sun · Day shift". */

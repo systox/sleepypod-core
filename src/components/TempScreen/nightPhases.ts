@@ -1,5 +1,6 @@
 import { TEMP_NEUTRAL, TEMP_RANGE } from '@/src/hardware/types'
 import { curveToScheduleTemperatures, generateSleepCurve } from '@/src/lib/sleepCurve/generate'
+import { nightOrder } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK, getCurrentDay, hhmmToMinutes, type DayOfWeek } from '@/src/lib/scheduleTime'
 import { endActionForDay, type SchedulePowerRow } from '@/src/lib/scheduleGrouping'
 import { TEMP } from '@/src/lib/tempColors'
@@ -84,7 +85,6 @@ export interface NightPhases {
 const FINAL_HOLD_MIN = 30
 /** Dawn is the last quarter of the span from the first to the last set point. */
 const DAWN_FRACTION = 0.25
-const HALF_DAY = 12 * 60
 
 function fingerprint(rows: { time: string, temperature: number }[]): string {
   return rows.map(r => `${r.time}@${r.temperature}`).sort().join('|')
@@ -95,15 +95,7 @@ function nightOrdered(rows: ScheduleTempRow[]): { time: string, temperature: num
   const withMin = rows
     .map(r => ({ time: r.time, temperature: r.temperature, m: hhmmToMinutes(r.time) }))
     .filter(r => !Number.isNaN(r.m))
-    .sort((a, b) => a.m - b.m)
-  let wraps = false
-  for (let i = 0; i < withMin.length - 1; i++) {
-    if (withMin[i + 1].m - withMin[i].m > HALF_DAY) wraps = true
-  }
-  const ordered = wraps
-    ? withMin.map(r => ({ ...r, m: r.m < HALF_DAY ? r.m + 24 * 60 : r.m }))
-    : withMin
-  return ordered.sort((a, b) => a.m - b.m)
+  return nightOrder(withMin.map(r => ({ ...r, minutes: r.m }))).map(r => ({ ...r, m: r.minutes }))
 }
 
 function phaseOf(points: { time: string, temperature: number, m: number }[], endM: number, endTime: string): NightPhase {

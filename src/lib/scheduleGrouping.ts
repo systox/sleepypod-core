@@ -1,3 +1,4 @@
+import { nightOrder } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
 
 export type ScheduleEndAction = 'turn_off' | 'maintain'
@@ -46,7 +47,7 @@ function fingerprint(points: SetPoint[]): string {
 /**
  * Sort set points chronologically with overnight wrap detection.
  * For schedules spanning midnight (e.g. 22:00 -> 00:30 -> 06:00),
- * early-morning times are shifted by +24h so they sort after evening times.
+ * the later times sort after the evening times.
  */
 export function sortChronological(points: SetPoint[]): SetPoint[] {
   if (points.length <= 1) return [...points]
@@ -56,37 +57,7 @@ export function sortChronological(points: SetPoint[]): SetPoint[] {
     return { ...p, minutes: h * 60 + m }
   })
 
-  // Detect overnight wrap: check if times span across midnight
-  // by looking for a gap > 12 hours between consecutive sorted times
-  const byClock = [...withMinutes].sort((a, b) => a.minutes - b.minutes)
-  let isOvernight = false
-  const HALF_DAY = 12 * 60
-
-  // If we have times both before and after noon with a large gap, it's overnight
-  const hasEarlyMorning = byClock.some(p => p.minutes < HALF_DAY)
-  const hasEvening = byClock.some(p => p.minutes >= HALF_DAY)
-  if (hasEarlyMorning && hasEvening) {
-    // Check for a gap > 12h between any consecutive pair
-    for (let i = 0; i < byClock.length - 1; i++) {
-      if (byClock[i + 1].minutes - byClock[i].minutes > HALF_DAY) {
-        isOvernight = true
-        break
-      }
-    }
-  }
-
-  if (isOvernight) {
-    // Shift early-morning times by +24h for sorting, then restore original order
-    const adjusted = withMinutes.map(p => ({
-      ...p,
-      sortMinutes: p.minutes < HALF_DAY ? p.minutes + 24 * 60 : p.minutes,
-    }))
-    adjusted.sort((a, b) => a.sortMinutes - b.sortMinutes)
-    return adjusted.map(({ time, temperature }) => ({ time, temperature }))
-  }
-
-  // Normal daytime schedule — plain chronological sort
-  return byClock.map(({ time, temperature }) => ({ time, temperature }))
+  return nightOrder(withMinutes).map(({ time, temperature }) => ({ time, temperature }))
 }
 
 /**
@@ -97,7 +68,7 @@ export function sortChronological(points: SetPoint[]): SetPoint[] {
  * still matter and stay:
  * - the first one after midnight: it marks where a night's morning begins,
  *   and days with different curves rely on it;
- * - any whose removal leaves more than 12h between neighbours, which
+ * - any whose removal leaves 12h or more between neighbours, which
  *   sortChronological would then read as an overnight wrap.
  */
 export function simplifySetPoints<P extends SetPoint>(points: P[]): P[] {
@@ -117,7 +88,7 @@ export function simplifySetPoints<P extends SetPoint>(points: P[]): P[] {
       && p.temperature === ordered[i - 1].temperature
       && p.temperature === ordered[i + 1].temperature
     const firstAfterMidnight = i > 0 && at[i] >= DAY && at[i - 1] < DAY
-    const leavesLongGap = i < ordered.length - 1 && at[i + 1] - at[lastKept] > DAY / 2
+    const leavesLongGap = i < ordered.length - 1 && at[i + 1] - at[lastKept] >= DAY / 2
     if (inFlatRun && !firstAfterMidnight && !leavesLongGap) return
     kept.push(p)
     lastKept = i

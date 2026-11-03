@@ -15,7 +15,7 @@ import { formatClock } from '@/src/lib/timeFormat'
 import { useTimeFormat } from '@/src/providers/TimeFormatProvider'
 import { trpc } from '@/src/utils/trpc'
 import { useForkOverview, useForkRefresh } from './useFork'
-import { barFor, DAY_SHORT, EMPTY_WEEK, sparkline, WEEK_DAYS, type WeekDays } from './weekLogic'
+import { DAY_SHORT, dayBars, EMPTY_WEEK, sparkline, WEEK_DAYS, type WeekDays } from './weekLogic'
 
 const SELECTIONS: Array<{ label: string, days: DayOfWeek[] }> = [
   { label: 'Every day', days: WEEK_DAYS },
@@ -102,10 +102,6 @@ export function WeekEditor({ id }: { id: string }) {
   const sides = overview.data ? [overview.data.left, overview.data.right] : []
   const onNow = sides.some(s => s.rotation?.thisPresetId === id)
   const inRotation = sides.some(s => s.rotation?.rotation.steps.includes(id))
-  const showEarly = WEEK_DAYS.some((day) => {
-    const curve = days[day] === null ? undefined : curves.get(days[day] as number)
-    return curve !== undefined && Number(curve.bedtime.slice(0, 2)) < 12
-  })
 
   const assign = (id: number | null) => {
     if (selected.length === 0) return
@@ -154,7 +150,6 @@ export function WeekEditor({ id }: { id: string }) {
           const value = days[day]
           const curve = value === null ? undefined : curves.get(value)
           const on = selected.includes(day)
-          const bar = barFor(curve)
           return (
             <button
               key={day}
@@ -175,7 +170,9 @@ export function WeekEditor({ id }: { id: string }) {
               )}
             >
               <span className="relative block h-[42px] w-3.5 shrink-0 overflow-hidden rounded-[3px] bg-line-2 min-[900px]:order-1 min-[900px]:h-[170px] min-[900px]:w-full" aria-hidden>
-                <span className="absolute inset-x-0 rounded-[3px] bg-cool" style={{ top: `${bar.top}%`, height: `${bar.height}%` }} />
+                {dayBars(days, day, curves).map(bar => (
+                  <span key={bar.top} className="absolute inset-x-0 rounded-[3px] bg-cool" style={{ top: `${bar.top}%`, height: `${bar.height}%` }} />
+                ))}
               </span>
               <span className="w-[34px] shrink-0 text-sm font-medium">{DAY_SHORT[day]}</span>
               <span className="flex min-w-0 flex-col gap-0.5 min-[900px]:order-2">
@@ -187,8 +184,6 @@ export function WeekEditor({ id }: { id: string }) {
           )
         })}
       </div>
-
-      {showEarly && <span className="text-xs text-fg-2">Each day means that day&apos;s night, so Mon at 4:00 AM is early Tuesday morning.</span>}
 
       <SectionLabel className="mt-1">Curves</SectionLabel>
       <span className="text-[13px] text-fg-2">
