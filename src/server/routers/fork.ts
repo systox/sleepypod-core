@@ -4,7 +4,7 @@ import { publicProcedure, router } from '@/src/server/trpc'
 import { sideSchema } from '@/src/server/validation-schemas'
 import { markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
 import { fadeOf } from '@/src/fork/holds'
-import { noiseStatus } from '@/src/fork/noise'
+import { noiseStatus, setNoise } from '@/src/fork/noise'
 import { selfTestSummary } from '@/src/fork/selftest'
 import { acceptSuggestion, dismissSuggestion, suggestionsFor } from '@/src/fork/suggestions'
 import { surfaceView } from '@/src/fork/surface'
@@ -127,6 +127,24 @@ export const forkRouter = router({
       logEvent(null, 'marked-wrong', { id: input.id })
       return { ok: true }
     }),
+
+  /** White noise on or off now, from the app or the web page. */
+  setNoise: publicProcedure
+    .input(z.object({ on: z.boolean() }).strict())
+    .mutation(({ input }) => {
+      try {
+        setNoise(input.on, 'app')
+        return noiseStatus()
+      }
+      catch (error) {
+        failed('change the white noise', error)
+      }
+    }),
+
+  /** Light enough for the iPhone app's Temp screen to ask often. */
+  noiseStatus: publicProcedure
+    .input(z.object({}).optional())
+    .query(() => noiseStatus()),
 
   /** Morning suggestions for both sides. */
   suggestions: publicProcedure

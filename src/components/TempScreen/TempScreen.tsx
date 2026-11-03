@@ -1,6 +1,7 @@
 'use client'
 
 import { useHoldSetting } from '@/src/components/Fork/HoldSetting'
+import { NoiseQuickToggle } from '@/src/components/Fork/NoiseCard'
 import Link from 'next/link'
 import { activeSleeperSides, scheduleSourceSide } from '@/src/lib/singleSleeper'
 import { useEffect, useState } from 'react'
@@ -229,9 +230,12 @@ export const TempScreen = () => {
 
       <NoticeStack notices={notices} />
 
-      <Link href="/settings?section=sides" className="mb-3 inline-flex rounded-ctl border border-line-2 px-3 py-2 text-sm text-fg-2 hover:text-fg" aria-label={`Manage sleepers: ${sleeperLabel}`}>
-        {sleeperLabel}
-      </Link>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link href="/settings?section=sides" className="inline-flex rounded-ctl border border-line-2 px-3 py-2 text-sm text-fg-2 hover:text-fg" aria-label={`Manage sleepers: ${sleeperLabel}`}>
+          {sleeperLabel}
+        </Link>
+        <NoiseQuickToggle />
+      </div>
 
       <SideSelector
         className="min-[900px]:hidden"

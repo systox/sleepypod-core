@@ -6,7 +6,8 @@
 import type { Side } from '@/src/hardware/types'
 import { clearPressWaits, stepSmoothReturn } from './holds'
 import { noteNightStart } from './nights'
-import { stopNoise, syncNoise } from './noise'
+import { clearMiddleWaits } from './middleButton'
+import { clearStaleNoise, stopNoise, syncNoise } from './noise'
 import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -120,6 +121,7 @@ export function startForkService(): void {
     globalService.__sp_forkService = { timers, settled }
     guarded('housekeeping', () => dailyHousekeeping())()
     guarded('rotation', rotationTick)()
+    guarded('noise', () => clearStaleNoise())()
     console.log('[fork] service started')
   }
   catch (error) {
@@ -138,6 +140,7 @@ export function stopForkService(): void {
   runtime.running = false
   clearPressWaits()
   clearSurfaces()
+  clearMiddleWaits()
   stopNoise()
   try {
     closeStore()

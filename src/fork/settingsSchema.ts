@@ -54,10 +54,20 @@ export const podSettingsSchema = z.object({
   ownershipStaleMinutes: z.number().min(1).max(30),
   timerRefreshHours: z.number().min(1).max(7.5),
   maxFailedStartups: z.number().int().min(1).max(20),
-  noiseMode: z.enum(['off', 'on', 'in-bed']),
+  /** White noise starts at the bedtime of this side's curve, or whichever comes first. */
+  noiseAuto: z.boolean(),
   noiseSide: z.enum(['left', 'right', 'either']),
   noiseVolume: z.number().int().min(0).max(100),
   noiseColor: z.enum(['white', 'pink', 'brown']),
+  /** Started with nobody in bed, it waits this long for someone. */
+  noiseWaitMinutes: z.number().min(5).max(240),
+  /** It stops once the bed has been empty this long. */
+  noiseEmptyMinutes: z.number().min(1).max(120),
+  noiseMaxHours: z.number().min(1).max(16),
+  middleSingle: z.enum(['none', 'noise']),
+  middleDouble: z.enum(['none', 'noise']),
+  middleTriple: z.enum(['none', 'noise']),
+  middleLong: z.enum(['none', 'noise']),
 })
 
 export type ForkSideSettings = z.infer<typeof sideSettingsSchema>
@@ -112,8 +122,15 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   ownershipStaleMinutes: 2,
   timerRefreshHours: 6,
   maxFailedStartups: 3,
-  noiseMode: 'off',
+  noiseAuto: false,
   noiseSide: 'either',
   noiseVolume: 20,
   noiseColor: 'pink',
+  noiseWaitMinutes: 60,
+  noiseEmptyMinutes: 10,
+  noiseMaxHours: 12,
+  middleSingle: 'none',
+  middleDouble: 'none',
+  middleTriple: 'none',
+  middleLong: 'none',
 }

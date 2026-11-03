@@ -14,6 +14,7 @@ import { withSideLock } from '@/src/hardware/sideLock'
 import { MAX_HOLD_MS } from '@/src/temperature/controller'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { deviceTimezone } from './clock'
+import { observeMiddle } from './middleButton'
 import { noteSmartPress } from './smart/runner'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -95,12 +96,20 @@ function currentTarget(side: Side): number | null {
   return db.select({ target: deviceState.targetTemperature }).from(deviceState).where(eq(deviceState.side, side)).get()?.target ?? null
 }
 
-/** Press bursts run together, so the hold waits for the last press in one. */
+/**
+ * Press bursts run together, so the hold waits for the last press in one.
+ * Only the top and bottom buttons change temperature; the middle one has its
+ * own gestures.
+ */
 export function observePress(frame: Record<string, unknown>): void {
   if (!runtime.running) return
   for (const side of ['left', 'right'] as const) {
-    const press = frame[side] as { button?: string } | undefined
-    if (!press?.button) continue
+    const press = frame[side] as { button?: string, type?: string, count?: number } | undefined
+    if (press?.button === 'middle') {
+      observeMiddle(side, press)
+      continue
+    }
+    if (press?.button !== 'top' && press?.button !== 'bottom') continue
     const waiting = presses.get(side)
     if (waiting) clearTimeout(waiting.timer)
     const wasOn = waiting?.wasOn ?? getTemperatureController().status(side).blocked === null

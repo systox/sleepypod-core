@@ -1,18 +1,38 @@
 /**
  * White noise from the base's speaker, made on the Pod with no audio files:
- * ffmpeg generates it and paplay plays it. Off by default. "In bed" plays
- * while the chosen side reads occupied, and stops when nobody is.
+ * ffmpeg generates it and paplay plays it. A session starts from the app, the
+ * web page, a middle-button press, or at bedtime when that's switched on. It
+ * ends when the bed has been empty a while, at its longest length, or when
+ * someone stops it.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Side } from '@/src/hardware/types'
 import { presenceOf, sensorsFresh } from './presence/collector'
 import type { ForkPodSettings } from './settings'
 import { getPodSettings } from './settings'
-import { logEvent } from './store'
+import { windowsOf } from './smart/runner'
+import { logEvent, readKey, removeKey, writeKey } from './store'
 
+const MINUTE = 60_000
 const PAPLAY_FULL = 65536
 /** A player that keeps failing is retried this often, not every tick. */
-const RETRY_MS = 5 * 60_000
+const RETRY_MS = 5 * MINUTE
+/** A bedtime missed by longer than this, say while the Pod was off, doesn't start noise late. */
+const BEDTIME_LATE_MS = 60 * MINUTE
+const SESSION_KEY = 'noise-session'
+/** Bedtimes that already started noise, so a stop or a second side's bedtime can't start it again. */
+const BEDTIMES_KEY = 'noise-bedtimes-done'
+/** Bedtimes closer than this belong to the same night, so the second side's doesn't start noise again. */
+const SAME_NIGHT_MS = 12 * 60 * MINUTE
+/** A player still running this long after it started has got past whatever failed before. */
+const SETTLED_MS = 10_000
+
+export type NoiseReason = 'app' | 'button' | 'bedtime'
+
+interface NoiseSession {
+  reason: NoiseReason
+  startedAt: number
+}
 
 interface NoiseState {
   child: ChildProcess | null
@@ -20,24 +40,84 @@ interface NoiseState {
   problem: string | null
   failedKey: string | null
   failedAt: number
+  /** Kept in memory only: it changes every tick someone is in bed. */
+  occupiedAt: number | null
+  session: NoiseSession | null | undefined
+  childStartedAt: number
 }
 
 const globalNoise = globalThis as typeof globalThis & { __sp_forkNoise?: NoiseState }
-const state: NoiseState = globalNoise.__sp_forkNoise ??= { child: null, key: null, problem: null, failedKey: null, failedAt: 0 }
+const state: NoiseState = globalNoise.__sp_forkNoise ??= {
+  child: null, key: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0,
+}
 
-type NoisePick = Pick<ForkPodSettings, 'noiseMode' | 'noiseSide' | 'noiseVolume' | 'noiseColor'>
+type NoiseSound = Pick<ForkPodSettings, 'noiseColor' | 'noiseVolume'>
+type NoiseTiming = Pick<ForkPodSettings, 'noiseWaitMinutes' | 'noiseEmptyMinutes' | 'noiseMaxHours'>
 
 /** The shell pipeline. Colour and volume come from validated settings only. */
-export function noiseCommand(pod: Pick<NoisePick, 'noiseColor' | 'noiseVolume'>): string {
+export function noiseCommand(pod: NoiseSound): string {
   const volume = Math.round(Math.max(0, Math.min(100, pod.noiseVolume)) / 100 * PAPLAY_FULL)
   return `ffmpeg -nostdin -loglevel error -f lavfi -i anoisesrc=color=${pod.noiseColor}:amplitude=0.5 -f s16le -ac 2 -ar 44100 - `
     + `| paplay --raw --rate=44100 --channels=2 --format=s16le --volume=${volume}`
 }
 
-export function wantsNoise(pod: NoisePick, occupied: Record<Side, boolean | null>): boolean {
-  if (pod.noiseMode === 'off' || pod.noiseVolume === 0) return false
-  if (pod.noiseMode === 'on') return true
-  return pod.noiseSide === 'either' ? occupied.left === true || occupied.right === true : occupied[pod.noiseSide] === true
+/**
+ * Why a session should end now, or null. The bed counts as empty once both
+ * sides read empty for the set minutes, counted from when someone was last in
+ * it, or from the end of the wait when nobody has been in it yet.
+ */
+export function endReason(session: NoiseSession, timing: NoiseTiming, now: number, bed: { empty: boolean | null, occupiedAt: number | null }): string | null {
+  if (now - session.startedAt >= timing.noiseMaxHours * 60 * MINUTE) return 'longest length'
+  if (bed.empty !== true) return null
+  const from = bed.occupiedAt ?? session.startedAt + timing.noiseWaitMinutes * MINUTE
+  return now - from >= timing.noiseEmptyMinutes * MINUTE ? 'bed empty' : null
+}
+
+/** Bedtimes that have just passed: the chosen side's curve, or both sides' for whoever goes first. */
+export function dueBedtimes(pod: Pick<ForkPodSettings, 'noiseSide'>, now: number, bedtimeOf: (side: Side) => number | null = side => windowsOf(side, now).window?.curve.bedtime ?? null): number[] {
+  const sides: Side[] = pod.noiseSide === 'either' ? ['left', 'right'] : [pod.noiseSide]
+  return sides.map(bedtimeOf).filter((at): at is number => at !== null && at <= now && now - at < BEDTIME_LATE_MS)
+}
+
+function loadSession(now = Date.now()): NoiseSession | null {
+  if (state.session === undefined) {
+    state.session = readKey<NoiseSession>(SESSION_KEY)
+    // Who was in bed before a restart isn't known, so the empty-bed count starts afresh.
+    if (state.session) state.occupiedAt = now
+  }
+  return state.session
+}
+
+function saveSession(session: NoiseSession | null, why: string): void {
+  const before = loadSession()
+  state.session = session
+  if (session) writeKey(SESSION_KEY, session)
+  else removeKey(SESSION_KEY)
+  if (session && !before) logEvent(null, 'noise-start', { reason: session.reason })
+  // The bedtime check below uses this too, so a session saved here is also the one it sees.
+  if (!session && before) logEvent(null, 'noise-stop', { why })
+}
+
+function bedNow(now: number): { empty: boolean | null, any: boolean } {
+  if (!sensorsFresh(now)) return { empty: null, any: false }
+  const left = presenceOf('left').occupied
+  const right = presenceOf('right').occupied
+  return { empty: left === false && right === false, any: left === true || right === true }
+}
+
+export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): void {
+  if (!on) {
+    saveSession(null, reason)
+  }
+  else if (!loadSession()) {
+    state.occupiedAt = bedNow(now).any ? now : null
+    saveSession({ reason, startedAt: now }, reason)
+  }
+  syncNoise(now)
+}
+
+export function toggleNoise(reason: NoiseReason, now = Date.now()): void {
+  setNoise(!loadSession(), reason, now)
 }
 
 export function stopNoise(): void {
@@ -54,16 +134,13 @@ export function stopNoise(): void {
   }
 }
 
-function start(command: string, now: number): void {
+function start(command: string): void {
   const child = spawn('sh', ['-c', command], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
   let lastError = ''
   child.stderr?.on('data', (chunk: Buffer) => {
     lastError = chunk.toString().trim().split('\n').pop() ?? lastError
   })
-  child.on('error', (error) => {
-    lastError = error.message
-  })
-  child.on('exit', (code) => {
+  const failed = (code: number | null) => {
     if (state.child !== child) return
     state.child = null
     state.problem = `The noise player stopped${code === null ? '' : ` (exit ${code})`}${lastError ? `: ${lastError}` : ''}`
@@ -72,36 +149,80 @@ function start(command: string, now: number): void {
     state.failedKey = state.key
     state.failedAt = Date.now()
     state.key = null
+  }
+  // A launch that fails may never report an exit, so its error counts as one.
+  child.on('error', (error) => {
+    lastError = error.message
+    failed(null)
   })
-  const retry = state.failedKey === command
+  child.on('exit', failed)
+  if (state.failedKey !== command) state.problem = null
   state.child = child
   state.key = command
-  if (!retry) {
-    state.problem = null
-    logEvent(null, 'noise-on', { at: now })
+  state.childStartedAt = Date.now()
+}
+
+/** Start at a bedtime that has just passed, once per bedtime. A broken curve can't stop the rest. */
+function startAtBedtime(pod: ForkPodSettings, now: number): void {
+  try {
+    const due = dueBedtimes(pod, now)
+    const done = readKey<number[]>(BEDTIMES_KEY) ?? []
+    const fresh = due.filter(at => !done.includes(at))
+    if (fresh.length === 0) return
+    writeKey(BEDTIMES_KEY, [...done, ...fresh].slice(-8))
+    if (fresh.every(at => done.some(d => Math.abs(at - d) < SAME_NIGHT_MS))) return
+    if (!loadSession(now)) {
+      state.occupiedAt = null
+      saveSession({ reason: 'bedtime', startedAt: now }, 'bedtime')
+    }
+  }
+  catch (error) {
+    console.warn('[fork] white noise bedtime check failed:', error instanceof Error ? error.message : error)
   }
 }
 
-/** One check: play or stop to match the setting and the bed. */
+/** One check: start at bedtime, end on an empty bed, and keep the player matching the session. */
 export function syncNoise(now = Date.now()): void {
   const pod = getPodSettings()
-  const fresh = sensorsFresh(now)
-  // In-bed mode can't judge the bed while sensors are blind, so it keeps what's playing.
-  if (!fresh && pod.noiseMode === 'in-bed' && state.child && state.key === noiseCommand(pod)) return
-  const occupied = { left: fresh ? presenceOf('left').occupied : null, right: fresh ? presenceOf('right').occupied : null }
-  if (!wantsNoise(pod, occupied)) {
+  if (pod.noiseAuto) startAtBedtime(pod, now)
+  const session = loadSession(now)
+  if (session) {
+    const bed = bedNow(now)
+    if (bed.any) state.occupiedAt = now
+    const why = endReason(session, pod, now, { empty: bed.empty, occupiedAt: state.occupiedAt })
+    if (why) saveSession(null, why)
+  }
+  if (!loadSession() || pod.noiseVolume === 0) {
     state.failedKey = null
-    if (state.child) logEvent(null, 'noise-off')
     stopNoise()
     return
   }
   const command = noiseCommand(pod)
-  if (state.child && state.key === command) return
+  if (state.child && state.key === command) {
+    if (state.problem && now - state.childStartedAt >= SETTLED_MS) state.problem = null
+    return
+  }
   if (state.failedKey === command && now - state.failedAt < RETRY_MS) return
   stopNoise()
-  start(command, now)
+  start(command)
 }
 
-export function noiseStatus(): { playing: boolean, problem: string | null } {
-  return { playing: state.child !== null, problem: state.problem }
+export function noiseStatus(): { on: boolean, playing: boolean, reason: NoiseReason | null, since: number | null, problem: string | null } {
+  const session = loadSession()
+  return { on: session !== null, playing: state.child !== null, reason: session?.reason ?? null, since: session?.startedAt ?? null, problem: state.problem }
+}
+
+/** For tests and a service restart: forget what's cached in memory. */
+export function resetNoiseMemory(): void {
+  stopNoise()
+  state.session = undefined
+  state.occupiedAt = null
+  state.problem = null
+  state.failedKey = null
+}
+
+/** Clears a stored session, so an old one can't restart noise after a long outage. */
+export function clearStaleNoise(now = Date.now()): void {
+  const session = loadSession()
+  if (session && now - session.startedAt >= getPodSettings().noiseMaxHours * 60 * MINUTE) saveSession(null, 'longest length')
 }
