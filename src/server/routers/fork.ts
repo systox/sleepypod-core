@@ -3,9 +3,11 @@ import { TRPCError } from '@trpc/server'
 import { publicProcedure, router } from '@/src/server/trpc'
 import { sideSchema } from '@/src/server/validation-schemas'
 import { markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
-import { fadeOf, serviceHealth } from '@/src/fork/service'
+import { fadeOf } from '@/src/fork/holds'
+import { serviceHealth } from '@/src/fork/service'
 import { getPodSettings, getSideSettings, podSettingsSchema, setPodSettings, setSideSettings, sideSettingsSchema } from '@/src/fork/settings'
-import { runCommand, runStateOf, windowsOf } from '@/src/fork/smart/runner'
+import { noteSwitchedOn, runCommand, runStateOf, windowsOf } from '@/src/fork/smart/runner'
+import { deviceTimezone } from '@/src/fork/clock'
 import { listEvents, logEvent, readKey, writeKey } from '@/src/fork/store'
 import { deletePreset, getRotation, listPresets, rotationSchema, rotationView, savePreset, saveRotation, syncRotation, weekNumber, weekPresetSchema } from '@/src/fork/weeks'
 import { db } from '@/src/db'
@@ -19,10 +21,6 @@ function failed(action: string, error: unknown): never {
   throw new TRPCError({ code: 'BAD_REQUEST', message: `Could not ${action}: ${error instanceof Error ? error.message : 'unknown error'}` })
 }
 
-function timezone(): string {
-  return db.select().from(deviceSettings).limit(1).all()[0]?.timezone || 'America/Los_Angeles'
-}
-
 function sideView(side: Side, now: number) {
   const { window, next } = windowsOf(side, now)
   const shownWindow = window ?? next
@@ -34,8 +32,6 @@ function sideView(side: Side, now: number) {
     tonight: window
       ? { bedtime: window.curve.bedtime, windowStart: window.windowStart, windowEnd: window.windowEnd, points: window.curve.points }
       : null,
-    nextWindowStart: next?.windowStart ?? null,
-    nextBedtime: next?.curve.bedtime ?? null,
     upcoming: shownWindow
       ? { bedtime: shownWindow.curve.bedtime, windowStart: shownWindow.windowStart, windowEnd: shownWindow.windowEnd, firstTemperature: shownWindow.curve.points[0].temperature }
       : null,
@@ -66,7 +62,10 @@ export const forkRouter = router({
     .input(z.object({ side: sideSchema, patch: sideSettingsSchema.partial() }).strict())
     .mutation(({ input }) => {
       try {
-        return setSideSettings(input.side, input.patch)
+        const wasOn = getSideSettings(input.side).smartStart
+        const saved = setSideSettings(input.side, input.patch)
+        if (saved.smartStart && !wasOn) noteSwitchedOn(input.side)
+        return saved
       }
       catch (error) {
         failed('save the setting', error)
@@ -77,7 +76,10 @@ export const forkRouter = router({
     .input(z.object({ patch: podSettingsSchema.partial() }).strict())
     .mutation(({ input }) => {
       try {
-        return setPodSettings(input.patch)
+        const wasLive = getPodSettings().detection === 'live'
+        const saved = setPodSettings(input.patch)
+        if (saved.detection === 'live' && !wasLive) SIDES.forEach(side => noteSwitchedOn(side))
+        return saved
       }
       catch (error) {
         failed('save the setting', error)
@@ -174,7 +176,7 @@ export const forkRouter = router({
       const rotation = getRotation(input.side)
       if (!rotation) failed('swap the week', new Error('This side has no rotation'))
       try {
-        const week = weekNumber(rotation, Date.now(), timezone())
+        const week = weekNumber(rotation, Date.now(), deviceTimezone())
         const saved = saveRotation(input.side, { ...rotation, swap: input.presetId ? { week, presetId: input.presetId } : null })
         await syncRotation(input.side, Date.now(), true)
         return saved

@@ -44,13 +44,15 @@ export interface RunState {
   movedAcross: boolean
   copyEndsAt: number | null
   lastWriteAt: number | null
+  /** The rules asked for the side off and that hasn't gone through yet. */
+  offOwed: boolean
   note: string | null
 }
 
 export const INITIAL_RUN: RunState = {
   phase: 'idle', points: null, bedtime: null, curveZeroAt: null, startedAt: null, backstopFrom: null,
   absentSince: null, pausedAt: null, offForTrip: false, outMs: 0, closedUntil: null, fullRunEndedAt: null,
-  warmedFor: null, windowFor: null, movedAcross: false, copyEndsAt: null, lastWriteAt: null, note: null,
+  warmedFor: null, windowFor: null, movedAcross: false, copyEndsAt: null, lastWriteAt: null, offOwed: false, note: null,
 }
 
 export interface TickContext {
@@ -76,8 +78,8 @@ export interface TickContext {
   personOn: boolean
   safetyStop: boolean
   window: TonightWindow | null
-  /** When the next window opens, used to close a side. */
-  nextWindowStart: number | null
+  /** The next window, used to close a side and for a Start between windows. */
+  nextWindow: TonightWindow | null
   timerRefreshMs: number
 }
 
@@ -95,6 +97,9 @@ export interface Decision {
   events: Array<{ kind: string, detail?: unknown }>
 }
 
+const MOVED_ACROSS_NOTE = 'Waiting: this looks like someone moving across'
+const BLIND_NOTE = 'Sensors blind'
+
 function position(state: RunState, now: number): number {
   const at = state.pausedAt ?? now
   return (at - (state.curveZeroAt ?? at)) / MINUTE
@@ -105,6 +110,10 @@ function curveMs(state: RunState, now: number): number {
   if (state.curveZeroAt === null) return 0
   const away = state.absentSince === null ? 0 : now - state.absentSince
   return now - state.curveZeroAt - state.outMs - away
+}
+
+function refreshDue(state: RunState, ctx: TickContext): boolean {
+  return state.lastWriteAt !== null && ctx.now - state.lastWriteAt >= ctx.timerRefreshMs
 }
 
 function writeFrom(state: RunState, settings: ForkSideSettings, now: number): Action {
@@ -142,7 +151,7 @@ function close(state: RunState, ctx: TickContext, reason: string, full: boolean)
   return {
     ...endRun(state),
     phase: 'closed',
-    closedUntil: ctx.nextWindowStart ?? ctx.now + 12 * HOUR,
+    closedUntil: ctx.nextWindow?.windowStart ?? ctx.now + 12 * HOUR,
     fullRunEndedAt: full ? ctx.now : state.fullRunEndedAt,
     note: reason,
   }
@@ -173,7 +182,7 @@ export function command(state: RunState, name: Command, ctx: TickContext): Decis
     const next = { ...state, phase: 'running' as const, curveZeroAt: ctx.now, backstopFrom: ctx.now, lastWriteAt: ctx.now }
     return { state: next, actions: [writeFrom(next, ctx.settings, ctx.now)], events }
   }
-  const window = ctx.window
+  const window = ctx.window ?? ctx.nextWindow
   const points = window?.curve.points ?? state.points
   if (!points) return { state: { ...state, note: 'No curve saved for this side' }, actions: [], events }
   const curve = { points, bedtime: window?.curve.bedtime ?? ctx.now }
@@ -189,28 +198,29 @@ export function command(state: RunState, name: Command, ctx: TickContext): Decis
 /** One tick of a side that has no run: wait for a window, a body or bedtime. */
 function tickWaiting(state: RunState, ctx: TickContext, events: Decision['events']): Decision {
   const { now, settings, window } = ctx
+  if (ctx.personOn) {
+    const decided = command(state, inGap(state, ctx) ? 'start-back' : 'start-new', ctx)
+    return { ...decided, events: [...events, ...decided.events] }
+  }
   let next = state
   if (next.phase === 'closed') {
     if (next.closedUntil !== null && now < next.closedUntil) return { state: next, actions: [], events }
     next = { ...next, phase: 'idle', closedUntil: null, note: null }
   }
-  if (ctx.personOn) {
-    const decided = command(next, inGap(next, ctx) ? 'start-back' : 'start-new', ctx)
-    return { ...decided, events: [...events, ...decided.events] }
-  }
   if (ctx.away || !window) return { state: { ...next, windowFor: window ? next.windowFor : null }, actions: [], events }
 
   const opened = next.windowFor !== window.curve.bedtime
-  next = { ...next, windowFor: window.curve.bedtime }
+  const gap = inGap(next, ctx)
+  // During the gap the window hasn't opened for this side, so it still can once the gap ends.
+  if (!gap) next = { ...next, windowFor: window.curve.bedtime }
 
   if (next.movedAcross) {
     if (ctx.occupied === false || ctx.twoBodies) next = { ...next, movedAcross: false, note: null }
     else return { state: next, actions: [], events }
   }
 
-  const gap = inGap(next, ctx)
   if (ctx.enteredAt !== null && ctx.enteredAt >= window.windowStart) {
-    if (ctx.movedAcross) return { state: { ...next, movedAcross: true, note: 'Waiting: this looks like someone moving across' }, actions: [], events }
+    if (ctx.movedAcross) return { state: { ...next, movedAcross: true, note: MOVED_ACROSS_NOTE }, actions: [], events }
     if (!gap) return startFromEntry(next, ctx, ctx.enteredAt, events)
   }
   if (opened && ctx.occupied === true && !gap) {
@@ -228,26 +238,35 @@ function tickWaiting(state: RunState, ctx: TickContext, events: Decision['events
 }
 
 function tickWarming(state: RunState, ctx: TickContext, events: Decision['events']): Decision {
+  if (ctx.away) return { state: close(state, ctx, 'Away', false), actions: [{ kind: 'off' }], events }
+  if (ctx.personOff) {
+    events.push({ kind: 'person-off' })
+    return { state: close(state, ctx, 'Turned off for tonight', false), actions: [{ kind: 'off' }], events }
+  }
+  let next = state
+  if (ctx.movedAcross) next = { ...next, movedAcross: true, note: MOVED_ACROSS_NOTE }
+  else if (next.movedAcross && (ctx.occupied === false || ctx.twoBodies)) next = { ...next, movedAcross: false, note: null }
   const entered = ctx.enteredAt ?? (ctx.occupied === true ? ctx.now : null)
-  if (entered !== null && ctx.window && !ctx.movedAcross) {
-    return startFromEntry({ ...state, phase: 'idle' }, ctx, entered, events)
+  if (!next.movedAcross && entered !== null && ctx.window) {
+    return startFromEntry({ ...next, phase: 'idle' }, ctx, entered, events)
   }
-  if (state.copyEndsAt !== null && ctx.now >= state.copyEndsAt) {
+  if (next.copyEndsAt !== null && ctx.now >= next.copyEndsAt) {
     events.push({ kind: 'warm-up-ended' })
-    return { state: { ...endRun(state), phase: 'idle', note: null }, actions: [{ kind: 'off' }], events }
+    return { state: { ...endRun(next), phase: 'idle', note: null }, actions: [{ kind: 'off' }], events }
   }
-  return { state, actions: [], events }
+  if (refreshDue(next, ctx)) return { state: { ...next, lastWriteAt: ctx.now }, actions: [{ kind: 'refresh' }], events }
+  return { state: next, actions: [], events }
 }
 
 function tickRun(state: RunState, ctx: TickContext, events: Decision['events']): Decision {
   const { now, settings } = ctx
-  const actions: Action[] = []
   let next = state
 
   if (ctx.away) return { state: close(next, ctx, 'Away', true), actions: [{ kind: 'off' }], events }
   if (ctx.personOff) {
     events.push({ kind: 'person-off' })
-    return { state: close(next, ctx, 'Turned off for tonight', curveMs(next, now) >= settings.shortRunHours * HOUR), actions: [], events }
+    // The off itself leaves the run-once session active, so end that too.
+    return { state: close(next, ctx, 'Turned off for tonight', curveMs(next, now) >= settings.shortRunHours * HOUR), actions: [{ kind: 'off' }], events }
   }
   if (next.backstopFrom !== null && now >= next.backstopFrom + settings.backstopHours * HOUR && next.phase === 'running') {
     events.push({ kind: 'backstop' })
@@ -260,12 +279,13 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
   // Sensors blind: hold everything, with trip timers frozen.
   if (ctx.occupied === null) {
     if (next.absentSince !== null) next = { ...next, absentSince: next.absentSince + ctx.elapsedMs }
-    return { state: { ...next, note: 'Sensors blind' }, actions, events }
+    return { state: next.note === BLIND_NOTE ? next : { ...next, note: BLIND_NOTE }, actions: [], events }
   }
+  if (next.note === BLIND_NOTE) next = { ...next, note: null }
 
   // An unplanned off: the 8-hour timer, a reboot or a firmware reset.
   if (!ctx.sideOn && !next.offForTrip) {
-    if (ctx.safetyStop) return { state: { ...next, note: 'Safety stop: the pump guard turned this side off' }, actions, events }
+    if (ctx.safetyStop) return { state: { ...next, note: 'Safety stop: the pump guard turned this side off' }, actions: [], events }
     if (ctx.occupied) {
       events.push({ kind: 'came-back-on' })
       next = { ...next, note: 'Came back on after the side went off', lastWriteAt: now }
@@ -310,7 +330,8 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
       }
       if (out >= secondStep && !next.offForTrip && next.phase === 'running') {
         events.push({ kind: 'trip-off' })
-        next = { ...next, offForTrip: true, note: 'Off, waiting for someone to come back' }
+        // A missed tick can skip the pause step, so the curve still stops where it should.
+        next = { ...next, offForTrip: true, pausedAt: next.pausedAt ?? absentSince + firstStep, note: 'Off, waiting for someone to come back' }
         return { state: next, actions: [{ kind: 'off' }], events }
       }
       if (out >= firstStep && next.pausedAt === null && next.phase === 'running') {
@@ -322,18 +343,17 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
     }
   }
 
-  if (next.phase === 'running' && next.pausedAt === null && !next.offForTrip) {
+  if (next.pausedAt === null && !next.offForTrip) {
     const backstopAt = (next.backstopFrom as number) + settings.backstopHours * HOUR
-    const copyEnding = next.copyEndsAt !== null && next.copyEndsAt - now < 30 * MINUTE && next.copyEndsAt < backstopAt
+    const copyEnding = next.phase === 'running' && next.copyEndsAt !== null
+      && next.copyEndsAt - now < 30 * MINUTE && next.copyEndsAt < backstopAt
     if (copyEnding) {
       next = { ...next, lastWriteAt: now }
       return { state: next, actions: [writeFrom(next, settings, now)], events }
     }
-    if (next.lastWriteAt !== null && now - next.lastWriteAt >= ctx.timerRefreshMs) {
-      return { state: { ...next, lastWriteAt: now }, actions: [{ kind: 'refresh' }], events }
-    }
+    if (refreshDue(next, ctx)) return { state: { ...next, lastWriteAt: now }, actions: [{ kind: 'refresh' }], events }
   }
-  return { state: next, actions, events }
+  return { state: next, actions: [], events }
 }
 
 function returnToBed(state: RunState, ctx: TickContext, events: Decision['events']): Decision {

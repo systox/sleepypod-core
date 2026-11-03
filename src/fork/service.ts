@@ -4,7 +4,7 @@
  * catches its own errors, and repeated failed startups turn it off.
  */
 import type { Side } from '@/src/hardware/types'
-import { fadeOf, stepSmoothReturn } from './holds'
+import { clearPressWaits, stepSmoothReturn } from './holds'
 import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -27,21 +27,23 @@ interface ServiceTimers {
 
 const globalService = globalThis as typeof globalThis & { __sp_forkService?: ServiceTimers }
 
-function guarded(label: string, step: () => void | Promise<void>): () => void {
+/** One step at a time: a slow one must not overlap itself and act twice on the same state. */
+export function guarded(label: string, step: () => void | Promise<void>): () => void {
+  let busy = false
   return () => {
-    try {
-      void Promise.resolve(step()).catch((error) => {
-        console.warn(`[fork] ${label} failed:`, error instanceof Error ? error.message : error)
-      })
-    }
-    catch (error) {
+    if (busy) return
+    busy = true
+    void Promise.resolve().then(step).catch((error) => {
       console.warn(`[fork] ${label} failed:`, error instanceof Error ? error.message : error)
-    }
+    }).finally(() => {
+      busy = false
+    })
   }
 }
 
 function refreshFlags(): void {
   const pod = getPodSettings()
+  runtime.detectionOn = pod.detection !== 'off'
   runtime.detectionLive = pod.detection === 'live'
   runtime.ownershipStaleMs = pod.ownershipStaleMinutes * 60_000
   runtime.smartSides = { left: getSideSettings('left').smartStart, right: getSideSettings('right').smartStart }
@@ -51,7 +53,12 @@ function refreshFlags(): void {
 const smartTick = async (): Promise<void> => {
   refreshFlags()
   if (!runtime.detectionLive || runtime.disabled) return
-  for (const side of SIDES) await tickSide(side)
+  for (const side of SIDES) {
+    // A side that keeps failing must not hold up the other one.
+    await tickSide(side).catch((error) => {
+      console.warn(`[fork] ${side} tick failed:`, error instanceof Error ? error.message : error)
+    })
+  }
 }
 
 const fastTick = async (): Promise<void> => {
@@ -106,6 +113,7 @@ export function stopForkService(): void {
     globalService.__sp_forkService = undefined
   }
   runtime.running = false
+  clearPressWaits()
   try {
     closeStore()
   }
@@ -124,5 +132,3 @@ export interface ServiceHealth {
 export function serviceHealth(): ServiceHealth {
   return { running: runtime.running, disabled: runtime.disabled, sensorsFresh: sensorsFresh(), lastBeat: runtime.lastBeat }
 }
-
-export { fadeOf }

@@ -1,10 +1,40 @@
 import { describe, expect, it } from 'vitest'
-import { nightDay, nightRows, runsNextDay } from '../nightDay'
+import { nightDay, nightOrder, nightRows, runsNextDay } from '../nightDay'
 
 const evening = { onTime: '22:30', offTime: '07:00' }
 const lateFinish = { onTime: '22:00', offTime: '13:00' }
 const morning = { onTime: '04:00', offTime: '12:00' }
 const afternoon = { onTime: '13:00', offTime: '16:00' }
+
+describe('nightOrder', () => {
+  const order = (...times: number[]) => nightOrder(times.map(h => ({ minutes: h * 60 }))).map(p => p.minutes / 60)
+
+  it('carries an overnight curve past midnight', () => {
+    expect(order(1, 7, 22.5, 23)).toEqual([22.5, 23, 25, 31])
+  })
+
+  it('accepts a timeline already past midnight', () => {
+    expect(order(22.5, 25, 31)).toEqual([22.5, 25, 31])
+  })
+
+  it('puts a curve that starts in the morning on the next day', () => {
+    expect(order(4, 8, 12)).toEqual([28, 32, 36])
+  })
+
+  it('leaves an afternoon curve on its own day', () => {
+    expect(order(13, 16)).toEqual([13, 16])
+  })
+
+  it('keeps a long late curve whose biggest gap is under 12 hours in order', () => {
+    expect(order(2, 8, 13, 22)).toEqual([22, 26, 32, 37])
+    expect(order(2, 8, 19, 22)).toEqual([19, 22, 26, 32])
+  })
+
+  it('copes with one point and none', () => {
+    expect(order(22)).toEqual([22])
+    expect(order()).toEqual([])
+  })
+})
 
 describe('runsNextDay', () => {
   it('keeps the evening of an overnight curve on its own day', () => {

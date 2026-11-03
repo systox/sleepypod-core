@@ -16,7 +16,6 @@ vi.mock('@/src/components/Fork/HoldSetting', async () => {
   const { useState } = await import('react')
   const { createElement } = await import('react')
   return {
-    FORK_HOLD_OPTIONS: [],
     useHoldSetting: () => useState(30),
     HoldRow: ({ holdMinutes, onDurationChange }: { holdMinutes: number, onDurationChange: (minutes: number) => void }) => createElement(
       'select',

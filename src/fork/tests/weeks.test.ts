@@ -96,6 +96,29 @@ describe('applying a preset', () => {
     expect(db.select().from(powerSchedules).where(eq(powerSchedules.side, 'left')).all().every(p => p.onTime === '04:00')).toBe(true)
   })
 
+  it('does not wake the other side\'s days saved on a curve that was off', async () => {
+    const a = curve('A', '23:00', 80)
+    db.update(curveTemplates).set({ rightDays: ['friday'] }).where(eq(curveTemplates.id, a.id)).run()
+    await applyPreset('left', { id: 'a', name: 'A', days: days(a.id) })
+    expect(db.select().from(curveTemplates).all()[0]).toMatchObject({ active: true, rightDays: [] })
+    expect(db.select().from(temperatureSchedules).where(eq(temperatureSchedules.side, 'right')).all()).toHaveLength(0)
+  })
+
+  it('keeps the other side\'s days on a curve that was on', async () => {
+    const a = curve('A', '23:00', 80)
+    db.update(curveTemplates).set({ rightDays: ['friday'], active: true }).where(eq(curveTemplates.id, a.id)).run()
+    await applyPreset('left', { id: 'a', name: 'A', days: days(a.id) })
+    expect(db.select().from(curveTemplates).all()[0].rightDays).toEqual(['friday'])
+  })
+
+  it('leaves days saved on an off curve the week does not use', async () => {
+    const a = curve('A', '23:00', 80)
+    const b = curve('B', '22:30', 82)
+    db.update(curveTemplates).set({ rightDays: ['friday'] }).where(eq(curveTemplates.id, b.id)).run()
+    await applyPreset('left', { id: 'a', name: 'A', days: days(a.id) })
+    expect(db.select().from(curveTemplates).where(eq(curveTemplates.id, b.id)).get()).toMatchObject({ active: false, rightDays: ['friday'] })
+  })
+
   it('reports a curve that was deleted, and that day runs nothing', async () => {
     const a = curve('A', '23:00', 80)
     const missing = await applyPreset('left', { id: 'a', name: 'A', days: { ...days(a.id), friday: 9999 } })

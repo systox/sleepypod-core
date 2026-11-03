@@ -3,7 +3,7 @@
  * reads, and the one-night copy of it handed to run-once.
  */
 import { nightDay, type NightPower } from '@/src/lib/nightDay'
-import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
+import { DAYS_OF_WEEK, hhmmToMinutes, type DayOfWeek } from '@/src/lib/scheduleTime'
 import { weeklyWindow, weeklyZone } from '@/src/scheduler/occurrences'
 
 const DAY_MIN = 24 * 60
@@ -26,8 +26,6 @@ export interface Curve {
   day: DayOfWeek
   bedtime: number
   points: CurvePoint[]
-  /** Minutes from the first point to the last. */
-  length: number
 }
 
 export interface TonightWindow {
@@ -38,19 +36,14 @@ export interface TonightWindow {
 
 export interface WindowHours { hoursEarly: number, hoursLate: number }
 
-const toMinutes = (time: string): number => {
-  const [hour, minute] = time.split(':').map(Number)
-  return hour * 60 + minute
-}
-
 /** A saved day's curve as minutes from its first point. Points outside on-to-off never ran. */
 export function curvePoints(temps: CurveRow[], power: PowerRow): CurvePoint[] {
-  const start = toMinutes(power.onTime)
-  const span = (toMinutes(power.offTime) - start + DAY_MIN) % DAY_MIN
+  const start = hhmmToMinutes(power.onTime)
+  const span = (hhmmToMinutes(power.offTime) - start + DAY_MIN) % DAY_MIN
   const byOffset = new Map<number, number>([[0, power.onTemperature]])
   for (const row of temps) {
     if (row.dayOfWeek !== power.dayOfWeek) continue
-    const offset = (toMinutes(row.time) - start + DAY_MIN) % DAY_MIN
+    const offset = (hhmmToMinutes(row.time) - start + DAY_MIN) % DAY_MIN
     if (offset <= span) byOffset.set(offset, row.temperature)
   }
   return [...byOffset].map(([offset, temperature]) => ({ offset, temperature })).sort((a, b) => a.offset - b.offset)
@@ -75,7 +68,7 @@ function occurrences(temps: CurveRow[], powers: PowerRow[], timezone: string, no
     const fires = DAYS_OF_WEEK.indexOf(nightDay(power.dayOfWeek, power.onTime, power))
     const { startsAt, expiresAt } = weeklyWindow(zone, fires, hour, minute, now)
     for (const bedtime of [startsAt, expiresAt]) {
-      if (Number.isFinite(bedtime)) out.push({ day: power.dayOfWeek, bedtime, points, length: points[points.length - 1].offset })
+      if (Number.isFinite(bedtime)) out.push({ day: power.dayOfWeek, bedtime, points })
     }
   }
   return out.sort((a, b) => a.bedtime - b.bedtime)
@@ -87,21 +80,18 @@ const windowOf = (curve: Curve, hours: WindowHours): TonightWindow => ({
   windowEnd: curve.bedtime + hours.hoursLate * 60 * MINUTE,
 })
 
-/** The window `now` falls in, nearest bedtime first, or null between windows. */
-export function tonightWindow(temps: CurveRow[], powers: PowerRow[], timezone: string, now: number, hours: WindowHours): TonightWindow | null {
-  const open = occurrences(temps, powers, timezone, now)
-    .map(curve => windowOf(curve, hours))
+/**
+ * The window `now` falls in, nearest bedtime first, or null between windows,
+ * and the next one to open. Together because both need the same expensive
+ * zone table, and the Tonight page asks every few seconds.
+ */
+export function windowsAround(temps: CurveRow[], powers: PowerRow[], timezone: string, now: number, hours: WindowHours): { window: TonightWindow | null, next: TonightWindow | null } {
+  const windows = occurrences(temps, powers, timezone, now).map(curve => windowOf(curve, hours))
+  const open = windows
     .filter(w => now >= w.windowStart && now < w.windowEnd)
     .sort((a, b) => Math.abs(a.curve.bedtime - now) - Math.abs(b.curve.bedtime - now))
-  return open[0] ?? null
-}
-
-/** When the next window opens after `now`, or null with no curves saved. */
-export function nextWindow(temps: CurveRow[], powers: PowerRow[], timezone: string, now: number, hours: WindowHours): TonightWindow | null {
-  return occurrences(temps, powers, timezone, now)
-    .map(curve => windowOf(curve, hours))
-    .filter(w => w.windowStart > now)
-    .sort((a, b) => a.windowStart - b.windowStart)[0] ?? null
+  const coming = windows.filter(w => w.windowStart > now).sort((a, b) => a.windowStart - b.windowStart)
+  return { window: open[0] ?? null, next: coming[0] ?? null }
 }
 
 function clockIn(timezone: string, at: number): string {

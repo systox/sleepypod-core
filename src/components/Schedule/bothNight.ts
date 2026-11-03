@@ -1,5 +1,5 @@
 import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
-import { startsBeforeNoon } from '@/src/lib/nightDay'
+import { nightOrder } from '@/src/lib/nightDay'
 import { buildTimeline } from './CurveChart'
 
 export interface TempRow {
@@ -26,10 +26,9 @@ export function nightDate(day: DayOfWeek, now: Date): Date {
 
 /** Absolute start/end of a night's curve, or null when it has no set points. */
 export function nightWindow(setPoints: Array<{ time: string, temperature: number }>, midnight: Date): { start: Date, end: Date } | null {
-  const tl = buildTimeline(setPoints)
+  const tl = nightOrder(buildTimeline(setPoints))
   if (tl.length === 0) return null
-  const shift = startsBeforeNoon(tl[0].minutes) ? 24 * 60 : 0
-  const at = (m: number) => new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, m + shift)
+  const at = (m: number) => new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, m)
   return { start: at(tl[0].minutes), end: at(tl[tl.length - 1].minutes) }
 }
 
@@ -43,10 +42,8 @@ export function nextSetPoint(temps: TempRow[] | undefined, now: Date): { at: Dat
   for (let offset = -1; offset < 8; offset++) {
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset)
     const day = DAYS_OF_WEEK[midnight.getDay()]
-    const tl = buildTimeline(nightSetPoints(temps, day))
-    const shift = tl.length > 0 && startsBeforeNoon(tl[0].minutes) ? 24 * 60 : 0
-    for (const p of tl) {
-      const at = new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes + shift)
+    for (const p of nightOrder(buildTimeline(nightSetPoints(temps, day)))) {
+      const at = new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes)
       if (at > now && (!best || at < best.at)) best = { at, time: p.item.time, temperature: p.temperature }
     }
   }

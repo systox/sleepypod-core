@@ -274,6 +274,11 @@ export class TemperatureController {
     })
   }
 
+  /** Sleepypod turned this side off itself, so an empty target isn't a press on neutral. */
+  turnedOff(side: Side): boolean {
+    return this.poweredOff[side]
+  }
+
   /** The scheduled or run-once target underneath any hold, or null with neither. */
   baselineTarget(side: Side): number | null {
     const now = this.deps.now()

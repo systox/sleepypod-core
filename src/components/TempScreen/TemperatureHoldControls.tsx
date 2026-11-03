@@ -88,5 +88,5 @@ export function HoldDurationRow({ holdMinutes, onDurationChange }: {
   holdMinutes: number
   onDurationChange: (minutes: number) => void
 }) {
-  return <HoldRow holdMinutes={holdMinutes} onDurationChange={onDurationChange} />
+  return <HoldRow holdMinutes={holdMinutes} options={HOLD_OPTIONS} onDurationChange={onDurationChange} />
 }

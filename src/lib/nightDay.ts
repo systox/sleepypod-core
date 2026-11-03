@@ -1,6 +1,7 @@
-import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
+import { DAYS_OF_WEEK, hhmmToMinutes, type DayOfWeek } from '@/src/lib/scheduleTime'
 
 const NOON = 12 * 60
+const DAY = 24 * 60
 
 /** A side's power row for one day: the clock times that frame a saved curve. */
 export interface NightPower {
@@ -8,14 +9,20 @@ export interface NightPower {
   offTime: string
 }
 
-function toMinutes(time: string): number {
-  const [hour, minute] = time.split(':').map(Number)
-  return hour * 60 + minute
-}
-
-/** A curve that starts before noon runs the morning after the day it's saved under. */
-export function startsBeforeNoon(minutes: number): boolean {
-  return minutes < NOON
+/**
+ * A saved curve's points in the order they run, as minutes from midnight of
+ * the day it's saved under. With no power row to go on, the longest stretch
+ * without a point is when the side is off, so the curve starts just after it.
+ */
+export function nightOrder<T extends { minutes: number }>(timeline: T[]): T[] {
+  const byClock = timeline.map(p => ({ ...p, minutes: p.minutes % DAY })).sort((a, b) => a.minutes - b.minutes)
+  const gapBefore = (i: number) => (byClock[i].minutes - byClock[(i + byClock.length - 1) % byClock.length].minutes + DAY) % DAY
+  const start = byClock.reduce((best, _, i) => (gapBefore(i) > gapBefore(best) ? i : best), 0)
+  const first = byClock[start]?.minutes
+  return [...byClock.slice(start), ...byClock.slice(0, start)].map(p => ({
+    ...p,
+    minutes: p.minutes + (first < NOON ? DAY : 0) + (p.minutes < first ? DAY : 0),
+  }))
 }
 
 /**
@@ -26,10 +33,10 @@ export function startsBeforeNoon(minutes: number): boolean {
  */
 export function runsNextDay(time: string, power: NightPower | null | undefined): boolean {
   if (!power) return false
-  const start = toMinutes(power.onTime)
-  if (startsBeforeNoon(start)) return true
-  const at = toMinutes(time)
-  return startsBeforeNoon(at) || (toMinutes(power.offTime) < start && at <= toMinutes(power.offTime))
+  const start = hhmmToMinutes(power.onTime)
+  if (start < NOON) return true
+  const at = hhmmToMinutes(time)
+  return at < NOON || (hhmmToMinutes(power.offTime) < start && at <= hhmmToMinutes(power.offTime))
 }
 
 /** The weekday a time in a saved curve really fires on. */

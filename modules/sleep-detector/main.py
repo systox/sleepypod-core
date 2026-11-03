@@ -1293,6 +1293,7 @@ class SessionTracker:
                             EXIT_COLLAPSE_FRACTION * 100, EXIT_SETTLE_S // 60)
             present = baseline.is_present(values, self._level_present)
             fork = FORK_PRESENCE.state(self.side)
+            self._presence_since = None
             if fork is not None:
                 present, self._presence_since = fork
             self._level_present = present

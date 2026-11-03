@@ -4,7 +4,7 @@
  */
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/src/db'
-import { deviceSettings, deviceState, powerSchedules, runOnceSessions, temperatureSchedules } from '@/src/db/schema'
+import { deviceState, powerSchedules, runOnceSessions, temperatureSchedules } from '@/src/db/schema'
 import { nightRows, type NightPower } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK } from '@/src/lib/scheduleTime'
 import { weeklyWindow, weeklyZone } from '@/src/scheduler/occurrences'
@@ -13,6 +13,7 @@ import { fahrenheitToLevel, type Side } from '@/src/hardware/types'
 import { withSideLock } from '@/src/hardware/sideLock'
 import { MAX_HOLD_MS } from '@/src/temperature/controller'
 import { getTemperatureController } from '@/src/temperature/instance'
+import { deviceTimezone } from './clock'
 import { noteSmartPress } from './smart/runner'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -45,8 +46,7 @@ const fades = globalHolds.__sp_forkFades ??= new Map<Side, Fade>()
 
 /** Next time the curve changes temperature on a side, or null with nothing running. */
 export function nextCurveChange(side: Side, now: number): number | null {
-  const [settings] = db.select().from(deviceSettings).limit(1).all()
-  const timezone = settings?.timezone || 'America/Los_Angeles'
+  const timezone = deviceTimezone()
   const session = db.select().from(runOnceSessions)
     .where(and(eq(runOnceSessions.side, side), eq(runOnceSessions.status, 'active'))).get()
   if (session) {
@@ -116,6 +116,11 @@ export function observePress(frame: Record<string, unknown>): void {
   }
 }
 
+export function clearPressWaits(): void {
+  for (const wait of presses.values()) clearTimeout(wait.timer)
+  presses.clear()
+}
+
 export async function settlePress(side: Side, wasOn: boolean, buttons: string[]): Promise<void> {
   logEvent(side, 'press', { buttons })
   if (!wasOn) {
@@ -126,7 +131,8 @@ export async function settlePress(side: Side, wasOn: boolean, buttons: string[])
   if (pod.holdMinutes === 0) return
   await withSideLock(side, async () => {
     const controller = getTemperatureController()
-    if (controller.status(side).blocked === 'safety') return
+    // A hold can power a side on, so a press must not undo someone turning it off.
+    if (controller.status(side).blocked === 'safety' || controller.turnedOff(side)) return
     const target = currentTarget(side)
     const landed = target === null || fahrenheitToLevel(Math.round(target)) === 0 ? STEP_OFF_NEUTRAL_F : Math.round(target)
     const temperature = Math.min(landed, getSideSettings(side).warmestF)

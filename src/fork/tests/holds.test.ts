@@ -5,12 +5,14 @@ const h = vi.hoisted(() => ({
   baseline: 81 as number | null,
   setManualLocked: vi.fn(),
   target: 86 as number | null,
+  turnedOff: false,
 }))
 
 vi.mock('@/src/temperature/instance', () => ({
   getTemperatureController: () => ({
     status: () => h.status,
     baselineTarget: () => h.baseline,
+    turnedOff: () => h.turnedOff,
     setManualLocked: h.setManualLocked,
   }),
 }))
@@ -37,6 +39,7 @@ beforeEach(() => {
   h.status = { source: 'manual', holdUntil: NOW + 30_000, blocked: null, targetTemperature: 86, requestId: 'manual' }
   h.baseline = 81
   h.target = 86
+  h.turnedOff = false
   h.setManualLocked.mockReset()
   h.setManualLocked.mockImplementation(async (_side, _temperature, ms: number) => ({ holdUntil: NOW + ms }))
 })
@@ -61,6 +64,12 @@ describe('presses', () => {
 
   it('leaves a press alone on a side that was off', async () => {
     await settlePress('left', false, ['top'])
+    expect(h.setManualLocked).not.toHaveBeenCalled()
+  })
+
+  it('does not turn a side back on after someone turned it off', async () => {
+    h.turnedOff = true
+    await settlePress('left', true, ['top'])
     expect(h.setManualLocked).not.toHaveBeenCalled()
   })
 

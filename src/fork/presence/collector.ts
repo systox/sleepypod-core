@@ -8,12 +8,16 @@ import type { Side } from '@/src/hardware/types'
 import { runtime } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
 import { forkDbPath, logEvent, readKey, writeKey } from '../store'
-import { initialPresence, markEmpty, stepPresence, type MinuteReading, type PresenceConfig, type PresenceEvent, type PresenceState } from './detector'
+import { initialPresence, markEmpty, stepPresence, type MinuteReading, type PresenceConfig, type PresenceEvent, type PresenceState, type SidePresence } from './detector'
 
 const SIDES: Side[] = ['left', 'right']
 const STATE_KEY = 'presence'
 const SENSORS_STALE_MS = 2 * 60_000
 const EMPTY_VIBRATION = 1e5
+/** The Python modules treat this file as stale after 5 minutes. */
+const PRESENCE_FILE_EVERY_MS = 2 * 60_000
+/** The empty level drifts every quiet minute and relearns in 5, so a late save costs nothing. */
+const EMPTY_LEVEL_SAVE_EVERY_MS = 15 * 60_000
 
 interface MinuteBucket {
   minute: number
@@ -28,11 +32,22 @@ interface CollectorState {
   /** Last minute both sides read empty, which a real exit passes through. */
   bedEmptyAt: number
   lastReading: MinuteReading | null
+  savedKey: string | null
+  savedLevels: string | null
+  savedAt: number
+  fileKey: string | null
+  fileWrittenAt: number
+}
+
+/** What has to survive a restart. The rest rebuilds within minutes. */
+interface SavedPresence {
+  bedEmptyAt: number
+  sides: Record<Side, Pick<SidePresence, 'occupied' | 'since' | 'emptyLevel'>>
 }
 
 const globalCollector = globalThis as typeof globalThis & { __sp_forkCollector?: CollectorState }
 const collector: CollectorState = globalCollector.__sp_forkCollector ??= {
-  bucket: null, presence: null, entries: new Map(), bedEmptyAt: 0, lastReading: null,
+  bucket: null, presence: null, entries: new Map(), bedEmptyAt: 0, lastReading: null, savedKey: null, savedLevels: null, savedAt: 0, fileKey: null, fileWrittenAt: 0,
 }
 
 function presenceConfig(): PresenceConfig {
@@ -42,8 +57,31 @@ function presenceConfig(): PresenceConfig {
 }
 
 function loadPresence(): PresenceState {
-  collector.presence ??= readKey<PresenceState>(STATE_KEY) ?? initialPresence()
+  if (collector.presence) return collector.presence
+  const saved = readKey<SavedPresence>(STATE_KEY)
+  const fresh = initialPresence()
+  collector.presence = saved?.sides
+    ? { ...fresh, left: { ...fresh.left, ...saved.sides.left }, right: { ...fresh.right, ...saved.sides.right } }
+    : fresh
+  collector.bedEmptyAt = saved?.bedEmptyAt ?? 0
   return collector.presence
+}
+
+/**
+ * This runs on the Pod's flash storage, so it writes at once only when someone
+ * gets in or out. The empty-bed time moves on every empty minute, and the
+ * first of those is the one that matters after a restart: when the last person left.
+ */
+function savePresence(state: PresenceState, now: number, atOnce = false): void {
+  const side = ({ occupied, since, emptyLevel }: SidePresence) => ({ occupied, since, emptyLevel })
+  const key = JSON.stringify([state.left.occupied, state.left.since, state.right.occupied, state.right.since])
+  const levels = JSON.stringify([state.left.emptyLevel, state.right.emptyLevel])
+  const levelsDue = levels !== collector.savedLevels && now - collector.savedAt >= EMPTY_LEVEL_SAVE_EVERY_MS
+  if (key === collector.savedKey && !levelsDue && !atOnce) return
+  writeKey(STATE_KEY, { bedEmptyAt: collector.bedEmptyAt, sides: { left: side(state.left), right: side(state.right) } } satisfies SavedPresence)
+  collector.savedKey = key
+  collector.savedLevels = levels
+  collector.savedAt = now
 }
 
 const median = (values: number[]): number | null => {
@@ -103,15 +141,16 @@ function noteEvents(events: PresenceEvent[], state: PresenceState): void {
 }
 
 function writePresenceFile(state: PresenceState, now: number): void {
+  const side = ({ occupied, since }: SidePresence) => ({ occupied, since: since === null ? null : since / 1000 })
+  const sides = { left: side(state.left), right: side(state.right) }
+  const key = JSON.stringify(sides)
+  if (key === collector.fileKey && now - collector.fileWrittenAt < PRESENCE_FILE_EVERY_MS) return
   const path = presenceFilePath()
   const tmp = `${path}.tmp`
-  writeFileSync(tmp, JSON.stringify({
-    version: 1,
-    ts: now / 1000,
-    left: { occupied: state.left.occupied, since: state.left.since === null ? null : state.left.since / 1000 },
-    right: { occupied: state.right.occupied, since: state.right.since === null ? null : state.right.since / 1000 },
-  }))
+  writeFileSync(tmp, JSON.stringify({ version: 1, ts: now / 1000, ...sides }))
   renameSync(tmp, path)
+  collector.fileKey = key
+  collector.fileWrittenAt = now
 }
 
 export function presenceFilePath(): string {
@@ -138,7 +177,7 @@ export function closeMinute(now = Date.now()): void {
     collector.presence = step.state
     if (step.state.left.occupied === false && step.state.right.occupied === false) collector.bedEmptyAt = ts
     noteEvents(step.events, step.state)
-    writeKey(STATE_KEY, step.state)
+    savePresence(step.state, now)
     if (pod.detection === 'live') writePresenceFile(step.state, now)
   }
   catch (error) {
@@ -180,6 +219,6 @@ export function markBedEmpty(now = Date.now()): void {
   const reading = collector.lastReading
   const next = markEmpty(loadPresence(), { left: reading?.weight.left ?? null, right: reading?.weight.right ?? null }, now)
   collector.presence = next
-  writeKey(STATE_KEY, next)
+  savePresence(next, now, true)
   logEvent(null, 'bed-empty-marked')
 }

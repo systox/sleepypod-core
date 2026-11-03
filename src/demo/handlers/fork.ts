@@ -8,8 +8,6 @@ const side = (otherSideShare: number) => ({
   presence: { occupied: false, since: null },
   fade: null,
   tonight: null,
-  nextWindowStart: null,
-  nextBedtime: null,
   upcoming: null,
   rotation: null,
 })

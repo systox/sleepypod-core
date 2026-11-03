@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Button, Card, InlineError, PageHeader, Pill, SectionLabel, Skeleton, TextField } from '@/src/components/ds'
 import { langFromPath } from '@/src/components/AppShell/navItems'
 import { templateSetPoints } from '@/src/components/Schedule/SavedCurveCard'
+import { formatDayRange, sameDays } from '@/src/components/Schedule/scheduleFormat'
 import { useCurveTemplates, type SavedCurve } from '@/src/hooks/useCurveTemplates'
 import type { DayOfWeek } from '@/src/lib/scheduleTime'
 import { useSide } from '@/src/providers/SideProvider'
@@ -14,7 +15,7 @@ import { formatClock } from '@/src/lib/timeFormat'
 import { useTimeFormat } from '@/src/providers/TimeFormatProvider'
 import { trpc } from '@/src/utils/trpc'
 import { useForkOverview, useForkRefresh } from './useFork'
-import { barFor, DAY_SHORT, dayRange, EMPTY_WEEK, sparkline, WEEK_DAYS, type WeekDays } from './weekLogic'
+import { barFor, DAY_SHORT, EMPTY_WEEK, sparkline, WEEK_DAYS, type WeekDays } from './weekLogic'
 
 const SELECTIONS: Array<{ label: string, days: DayOfWeek[] }> = [
   { label: 'Every day', days: WEEK_DAYS },
@@ -22,7 +23,6 @@ const SELECTIONS: Array<{ label: string, days: DayOfWeek[] }> = [
   { label: 'Sat–Sun', days: WEEK_DAYS.slice(5) },
 ]
 const NO_CURVE = 'none'
-const sameDays = (a: DayOfWeek[], b: DayOfWeek[]) => a.length === b.length && a.every(d => b.includes(d))
 
 function useClockTime() {
   const timeFormat = useTimeFormat()
@@ -193,7 +193,7 @@ export function WeekEditor({ id }: { id: string }) {
       <SectionLabel className="mt-1">Curves</SectionLabel>
       <span className="text-[13px] text-fg-2">
         {selected.length > 0
-          ? `Tap a curve to put it on ${dayRange(selected)}. Tap more days to fill several at once.`
+          ? `Tap a curve to put it on ${formatDayRange(selected)}. Tap more days to fill several at once.`
           : 'Tap a day above, then a curve.'}
         <span className="hidden min-[900px]:inline"> You can also drag a curve onto a day.</span>
       </span>
@@ -219,19 +219,17 @@ export function WeekEditor({ id }: { id: string }) {
         />
       </div>
 
-      {overview.data && (
-        <div className="min-[900px]:max-w-[320px]">
-          <Button
-            full
-            onClick={() => {
-              const preset = weeks.data?.find(w => w.id === overview.data?.[primarySide].rotation?.thisPresetId)
-              if (preset) setDays(preset.days)
-            }}
-          >
-            Copy from this week
-          </Button>
-        </div>
-      )}
+      <div className="min-[900px]:max-w-[320px]">
+        <Button
+          full
+          onClick={() => {
+            const running = (day: DayOfWeek) => (templates ?? []).find(t => t.active && t.days[primarySide].includes(day))?.id ?? null
+            setDays(Object.fromEntries(WEEK_DAYS.map(day => [day, running(day)])) as WeekDays)
+          }}
+        >
+          Copy from this week
+        </Button>
+      </div>
       {onNow && <span className="text-xs text-warm">This week is on now, so saving changes its curves right away.</span>}
       {save.error && <InlineError>{save.error.message}</InlineError>}
       {remove.error && <InlineError>{remove.error.message}</InlineError>}

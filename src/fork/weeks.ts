@@ -9,11 +9,12 @@ import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '@/src/db'
-import { curveTemplates, deviceSettings } from '@/src/db/schema'
+import { curveTemplates } from '@/src/db/schema'
 import type { Side } from '@/src/hardware/types'
-import { hasDays, type LibrarySide, pointsToSetPoints } from '@/src/lib/scheduleLibrary'
-import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
+import { type CurveDays, hasDays, type LibrarySide } from '@/src/lib/scheduleLibrary'
+import { DAYS_OF_WEEK, hhmmToMinutes, type DayOfWeek } from '@/src/lib/scheduleTime'
 import { applySchedulerOps, curveDays, emptySchedulerOps, writeSide } from '@/src/server/scheduleLibrary'
+import { deviceTimezone } from './clock'
 import { logEvent, readKey, writeKey } from './store'
 
 const PRESETS_KEY = 'week-presets'
@@ -79,10 +80,6 @@ export function saveRotation(side: Side, rotation: Rotation): Rotation {
   return parsed
 }
 
-function timezone(): string {
-  return db.select().from(deviceSettings).limit(1).all()[0]?.timezone || 'America/Los_Angeles'
-}
-
 /** Whole minutes since 1970 on the local clock, so daylight saving can't shift the change. */
 function localMinutes(at: number, zone: string): number {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
@@ -92,14 +89,10 @@ function localMinutes(at: number, zone: string): number {
 }
 
 const dateMinutes = (date: string): number => Date.parse(`${date}T00:00:00Z`) / 60_000
-const clockMinutes = (time: string): number => {
-  const [hour, minute] = time.split(':').map(Number)
-  return hour * 60 + minute
-}
 
 /** Whole weeks since the anchor's first change. Negative before it. */
 export function weekNumber(rotation: Rotation, at: number, zone: string): number {
-  return Math.floor((localMinutes(at, zone) - dateMinutes(rotation.anchorDate) - clockMinutes(rotation.changeTime)) / WEEK_MIN)
+  return Math.floor((localMinutes(at, zone) - dateMinutes(rotation.anchorDate) - hhmmToMinutes(rotation.changeTime)) / WEEK_MIN)
 }
 
 export function stepIndex(rotation: Rotation, week: number): number {
@@ -127,13 +120,15 @@ export async function applyPreset(side: LibrarySide, preset: WeekPreset): Promis
     }
     writeSide(tx, { points: {}, endAction: 'turn_off', notes: '' }, side, [], [...DAYS_OF_WEEK], ops)
     for (const curve of curves) {
-      const before = curveDays(curve)
-      const days = { ...before, [side]: wanted.get(curve.id) ?? [] }
-      if (days[side].length > 0) writeSide(tx, curve, side, days[side], [], ops)
-      if (before[side].length > 0 || days[side].length > 0) {
-        tx.update(curveTemplates).set({ leftDays: days.left, rightDays: days.right, active: hasDays(days) })
-          .where(eq(curveTemplates.id, curve.id)).run()
-      }
+      const onDays = wanted.get(curve.id) ?? []
+      // A curve that's off and unused keeps the days saved on it.
+      if (!curve.active && onDays.length === 0) continue
+      // Turning a curve on makes all its days real, so an off curve's other-side days can't stay.
+      const kept: CurveDays = curve.active ? curveDays(curve) : { left: [], right: [] }
+      const days = { ...kept, [side]: onDays }
+      if (onDays.length > 0) writeSide(tx, curve, side, onDays, [], ops)
+      tx.update(curveTemplates).set({ leftDays: days.left, rightDays: days.right, active: hasDays(days) })
+        .where(eq(curveTemplates.id, curve.id)).run()
     }
   })
   await applySchedulerOps(ops)
@@ -144,7 +139,7 @@ export async function applyPreset(side: LibrarySide, preset: WeekPreset): Promis
 export async function syncRotation(side: Side, now = Date.now(), force = false): Promise<void> {
   const rotation = getRotation(side)
   if (!rotation || rotation.paused) return
-  const week = weekNumber(rotation, now, timezone())
+  const week = weekNumber(rotation, now, deviceTimezone())
   const presetId = presetForWeek(rotation, week)
   const appliedKey = `rotation-applied:${side}`
   const stamp = `${week}:${presetId}`
@@ -168,8 +163,6 @@ export interface RotationView {
 export function rotationView(side: Side, now = Date.now()): RotationView | null {
   const rotation = getRotation(side)
   if (!rotation) return null
-  const week = weekNumber(rotation, now, timezone())
+  const week = weekNumber(rotation, now, deviceTimezone())
   return { rotation, week, thisPresetId: presetForWeek(rotation, week) }
 }
-
-export { pointsToSetPoints }

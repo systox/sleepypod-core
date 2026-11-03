@@ -4,6 +4,7 @@ import { Card } from '@/src/components/ds'
 import type { Side } from '@/src/hardware/types'
 import { trpc } from '@/src/utils/trpc'
 import { useForkOverview } from './useFork'
+import { stepOf } from './weekLogic'
 
 /** The Both view: each side's week and what comes next. Editing needs one side. */
 export function BothRotation({ names }: { names: Record<Side, string> }) {
@@ -14,8 +15,7 @@ export function BothRotation({ names }: { names: Record<Side, string> }) {
     const view = data?.[side].rotation
     if (!view) return []
     const { rotation, week, thisPresetId } = view
-    const n = rotation.steps.length
-    const next = rotation.steps[(((week + 1) % n) + n) % n]
+    const next = rotation.steps[stepOf(week + 1, rotation.steps.length)]
     return [{ side, text: `${nameOf(thisPresetId)} · next ${nameOf(next)}${rotation.paused ? ' · paused' : ''}` }]
   })
   if (rows.length === 0) return null

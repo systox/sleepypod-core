@@ -1648,3 +1648,15 @@ class TestPod5Movement:
         assert obs.delta == 0.0 and obs.present is None
         obs = t.observe(self.T0 + 1.5, _cap2(*self.LOADED))
         assert obs.delta < 0.01
+
+    def test_fork_time_does_not_outlive_the_fork_file(self):
+        # A time left from the last fresh read would misdate a later change.
+        t = _live_tracker()
+        t.process(self.T0, _cap2(*self.LOADED))
+        with patch.object(main, "FORK_PRESENCE") as fork:
+            fork.state.return_value = (True, self.T0 - 600)
+            t.observe(self.T0 + 0.5, _cap2(*self.LOADED))
+            assert t._presence_since == self.T0 - 600
+            fork.state.return_value = None
+            t.observe(self.T0 + 1.0, _cap2(*self.LOADED))
+            assert t._presence_since is None

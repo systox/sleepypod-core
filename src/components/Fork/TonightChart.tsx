@@ -30,7 +30,7 @@ export function TonightChart({ side, view, now }: { side: Side, view: SideView, 
     { enabled: range !== null && Boolean(run.points), refetchInterval: 60_000 },
   )
   const events = trpc.fork.nights.useQuery(
-    { from: start ?? 0, to: (end ?? 0) + HOUR },
+    { from: range?.startDate.getTime() ?? 0, to: (range?.endDate.getTime() ?? 0) + HOUR },
     { enabled: range !== null, refetchInterval: 60_000 },
   )
 

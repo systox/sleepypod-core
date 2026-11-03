@@ -17,11 +17,13 @@ function safely(step: () => void): void {
 
 export function observeSensorFrame(frame: Record<string, unknown>): void {
   if (!runtime.running) return
-  if (frame.type === 'piezo-dual') safely(() => observePiezo(frame))
+  if (frame.type === 'piezo-dual') {
+    if (runtime.detectionOn) safely(() => observePiezo(frame))
+  }
   else if (frame.type === 'button-press') safely(() => observePress(frame))
 }
 
 export function observeCapFrame(left: number[], right: number[]): void {
-  if (!runtime.running) return
+  if (!runtime.running || !runtime.detectionOn) return
   safely(() => observeCap(left, right))
 }

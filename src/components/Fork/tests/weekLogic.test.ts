@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barFor, dayDate, dayRange, EMPTY_WEEK, makeThisWeek, mondayOf, moveStep, repeatText, sparkline, weekDates, weekSummary } from '../weekLogic'
+import { anchorAfter, barFor, dayDate, EMPTY_WEEK, makeThisWeek, mondayOf, moveStep, repeatText, sparkline, stepOf, weekDates, weekSummary } from '../weekLogic'
 import { describeSide, groupNights, nextStep, type SideView } from '../tonightLogic'
 import { INITIAL_RUN } from '@/src/fork/smart/engine'
 import { DEFAULT_SIDE_SETTINGS } from '@/src/fork/settings'
@@ -24,11 +24,6 @@ describe('week strip', () => {
 })
 
 describe('day labels', () => {
-  it('joins runs of days', () => {
-    expect(dayRange(['friday', 'monday', 'tuesday', 'wednesday'])).toBe('Mon–Wed, Fri')
-    expect(dayRange(['saturday', 'sunday'])).toBe('Sat–Sun')
-  })
-
   it('summarises a week', () => {
     const curves = new Map([[1, { name: 'Late Monday' }], [2, { name: 'Day shift' }]])
     const days = { ...EMPTY_WEEK, monday: 1, tuesday: 2, wednesday: 2, thursday: 2, friday: 2, saturday: 2, sunday: 9 }
@@ -36,7 +31,7 @@ describe('day labels', () => {
   })
 
   it('says when a day has no curve', () => {
-    expect(weekSummary(EMPTY_WEEK, new Map())).toBe('Mon–Sun · No curve')
+    expect(weekSummary(EMPTY_WEEK, new Map())).toBe('Every day · No curve')
   })
 })
 
@@ -44,6 +39,14 @@ describe('rotation order', () => {
   it('finds this week\'s Monday', () => {
     expect(mondayOf(new Date(2026, 10, 2))).toBe('2026-11-02')
     expect(mondayOf(new Date(2026, 10, 8))).toBe('2026-11-02')
+  })
+
+  it('finds a later week\'s Monday', () => {
+    expect(anchorAfter('2026-11-02', 5)).toBe('2026-12-07')
+  })
+
+  it('wraps weeks onto the order, counting back before the anchor', () => {
+    expect([0, 3, 4, -1].map(week => stepOf(week, 3))).toEqual([0, 0, 1, 2])
   })
 
   it('dates each step, across a month', () => {

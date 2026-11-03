@@ -5,14 +5,15 @@
  */
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/src/db'
-import { deviceSettings, powerSchedules, sideSettings, temperatureSchedules } from '@/src/db/schema'
+import { powerSchedules, sideSettings, temperatureSchedules } from '@/src/db/schema'
 import type { Side } from '@/src/hardware/types'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { presenceOf, sensorsFresh, takeEntry, twoBodies } from '../presence/collector'
 import { takePersonPower } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
+import { deviceTimezone } from '../clock'
 import { logEvent, readKey, writeKey } from '../store'
-import { buildCopy, nextWindow, tonightWindow, type CurveRow, type PowerRow, type TonightWindow } from './curves'
+import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow } from './curves'
 import { command, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
 
 const HOUR = 3_600_000
@@ -28,10 +29,6 @@ export function runStateOf(side: Side): RunState {
   return { ...INITIAL_RUN, ...readKey<RunState>(key(side)) }
 }
 
-function timezone(): string {
-  return db.select().from(deviceSettings).limit(1).all()[0]?.timezone || 'America/Los_Angeles'
-}
-
 function curveRows(side: Side): { temps: CurveRow[], powers: PowerRow[] } {
   const temps = db.select().from(temperatureSchedules).where(and(eq(temperatureSchedules.side, side), eq(temperatureSchedules.enabled, true))).all()
   const powers = db.select().from(powerSchedules).where(and(eq(powerSchedules.side, side), eq(powerSchedules.enabled, true))).all()
@@ -43,9 +40,7 @@ function curveRows(side: Side): { temps: CurveRow[], powers: PowerRow[] } {
 
 export function windowsOf(side: Side, now: number): { window: TonightWindow | null, next: TonightWindow | null } {
   const { temps, powers } = curveRows(side)
-  const settings = getSideSettings(side)
-  const zone = timezone()
-  return { window: tonightWindow(temps, powers, zone, now, settings), next: nextWindow(temps, powers, zone, now, settings) }
+  return windowsAround(temps, powers, deviceTimezone(), now, getSideSettings(side))
 }
 
 function buildContext(side: Side, state: RunState, now: number): TickContext {
@@ -56,7 +51,7 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
   const presence = presenceOf(side)
   const otherPresence = presenceOf(other)
   const entry = takeEntry(side)
-  const person = takePersonPower(side)
+  const person = takePersonPower(side, now)
   const away = db.select({ away: sideSettings.awayMode }).from(sideSettings).where(eq(sideSettings.side, side)).get()?.away ?? false
   const otherRun = runStateOf(other)
   return {
@@ -74,7 +69,7 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
     personOn: person?.on === true,
     safetyStop: status.blocked === 'safety',
     window,
-    nextWindowStart: next?.windowStart ?? null,
+    nextWindow: next,
     timerRefreshMs: getPodSettings().timerRefreshHours * HOUR,
   }
 }
@@ -89,15 +84,15 @@ async function carryOut(side: Side, action: Action, state: RunState, now: number
     case 'write':
     case 'hold': {
       const copy = action.kind === 'write'
-        ? buildCopy(action.points, action.curveZeroAt, now, action.endsAt, timezone())
-        : buildCopy([{ offset: 0, temperature: action.temperature }], now, now, action.endsAt, timezone())
+        ? buildCopy(action.points, action.curveZeroAt, now, action.endsAt, deviceTimezone())
+        : buildCopy([{ offset: 0, temperature: action.temperature }], now, now, action.endsAt, deviceTimezone())
       await (await caller()).runOnce.start({ side, setPoints: copy.setPoints, wakeTime: copy.wakeTime })
-      return { ...state, copyEndsAt: copy.endsAt }
+      return { ...state, copyEndsAt: copy.endsAt, offOwed: false }
     }
     case 'off':
       await (await caller()).runOnce.cancel({ side })
       await getTemperatureController().powerOff(side)
-      return { ...state, copyEndsAt: null }
+      return { ...state, copyEndsAt: null, offOwed: false }
     case 'refresh':
       await getTemperatureController().reconcile(side, true)
       return state
@@ -105,7 +100,8 @@ async function carryOut(side: Side, action: Action, state: RunState, now: number
 }
 
 async function apply(side: Side, decision: Decision, now: number): Promise<RunState> {
-  let state = decision.state
+  // Saved first, so a failed off is retried on the next tick and not forgotten.
+  let state = decision.actions.some(a => a.kind === 'off') ? { ...decision.state, offOwed: true } : decision.state
   writeKey(key(side), state)
   for (const event of decision.events) logEvent(side, `smart:${event.kind}`, event.detail)
   for (const action of decision.actions) {
@@ -116,17 +112,31 @@ async function apply(side: Side, decision: Decision, now: number): Promise<RunSt
 }
 
 export async function tickSide(side: Side, now = Date.now()): Promise<void> {
-  const state = runStateOf(side)
+  let state = runStateOf(side)
+  if (state.offOwed) {
+    state = await carryOut(side, { kind: 'off' }, state, now)
+    writeKey(key(side), state)
+  }
   const decision = tick(state, buildContext(side, state, now))
   lastTick[side] = now
-  if (decision.actions.length === 0 && decision.events.length === 0 && decision.state === state) return
-  await apply(side, decision, now)
+  const unchanged = decision.actions.length === 0 && decision.events.length === 0
+    && JSON.stringify(decision.state) === JSON.stringify(state)
+  // Most ticks change nothing, and this runs on the Pod's flash storage.
+  if (!unchanged) await apply(side, decision, now)
+}
+
+/**
+ * Smart start was just switched on or went live. A window already open counts
+ * as seen, so someone asleep in bed doesn't get their curve restarted.
+ */
+export function noteSwitchedOn(side: Side, now = Date.now()): void {
+  const { window } = windowsOf(side, now)
+  if (window) writeKey(key(side), { ...runStateOf(side), windowFor: window.curve.bedtime })
 }
 
 export async function runCommand(side: Side, name: Command, now = Date.now()): Promise<RunState> {
   const state = runStateOf(side)
-  const context = buildContext(side, state, now)
-  return apply(side, command(state, name, { ...context, window: context.window ?? windowsOf(side, now).next }), now)
+  return apply(side, command(state, name, buildContext(side, state, now)), now)
 }
 
 /**

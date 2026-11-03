@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DAYS_OF_WEEK } from '@/src/lib/scheduleTime'
-import { buildCopy, curvePoints, nextWindow, temperatureAt, tonightWindow, type CurveRow, type PowerRow } from '../curves'
+import { buildCopy, curvePoints, temperatureAt, windowsAround, type CurveRow, type PowerRow } from '../curves'
 
 const MIN = 60_000
 const HOURS = { hoursEarly: 1, hoursLate: 5.5 }
@@ -36,35 +36,35 @@ describe('curvePoints', () => {
   })
 })
 
-describe('tonightWindow', () => {
+describe('windowsAround', () => {
   it('finds the window around bedtime', () => {
-    const window = tonightWindow(temps, powers, 'UTC', utc(2, 22), HOURS)
+    const { window } = windowsAround(temps, powers, 'UTC', utc(2, 22), HOURS)
     expect(window?.curve.bedtime).toBe(utc(2, 22, 30))
     expect(window?.windowStart).toBe(utc(2, 21, 30))
     expect(window?.windowEnd).toBe(utc(3, 4))
   })
 
   it('is null between windows', () => {
-    expect(tonightWindow(temps, powers, 'UTC', utc(3, 15), HOURS)).toBeNull()
-    expect(nextWindow(temps, powers, 'UTC', utc(3, 15), HOURS)?.windowStart).toBe(utc(3, 21, 30))
+    const { window, next } = windowsAround(temps, powers, 'UTC', utc(3, 15), HOURS)
+    expect(window).toBeNull()
+    expect(next?.windowStart).toBe(utc(3, 21, 30))
   })
 
   it('picks the nearest bedtime when a wide window overlaps two', () => {
     const wide = { hoursEarly: 12, hoursLate: 12 }
-    expect(tonightWindow(temps, powers, 'UTC', utc(3, 1), wide)?.curve.bedtime).toBe(utc(2, 22, 30))
-    expect(tonightWindow(temps, powers, 'UTC', utc(3, 20), wide)?.curve.bedtime).toBe(utc(3, 22, 30))
+    expect(windowsAround(temps, powers, 'UTC', utc(3, 1), wide).window?.curve.bedtime).toBe(utc(2, 22, 30))
+    expect(windowsAround(temps, powers, 'UTC', utc(3, 20), wide).window?.curve.bedtime).toBe(utc(3, 22, 30))
   })
 
   it('places a morning curve on the day after it is saved', () => {
     const power: PowerRow = { dayOfWeek: 'monday', onTime: '05:00', offTime: '14:00', onTemperature: 84 }
-    const window = tonightWindow([], [power], 'UTC', utc(3, 5), { hoursEarly: 3, hoursLate: 11 })
+    const { window } = windowsAround([], [power], 'UTC', utc(3, 5), { hoursEarly: 3, hoursLate: 11 })
     // 11-02 is a Monday, so Monday's curve runs early Tuesday 11-03.
     expect(window?.curve.bedtime).toBe(utc(3, 5))
   })
 
   it('has nothing to offer with no curves', () => {
-    expect(tonightWindow([], [], 'UTC', utc(2, 22), HOURS)).toBeNull()
-    expect(nextWindow([], [], 'UTC', utc(2, 22), HOURS)).toBeNull()
+    expect(windowsAround([], [], 'UTC', utc(2, 22), HOURS)).toEqual({ window: null, next: null })
   })
 })
 

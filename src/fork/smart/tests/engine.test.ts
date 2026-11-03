@@ -13,7 +13,7 @@ const settings: ForkSideSettings = { ...DEFAULT_SIDE_SETTINGS, smartStart: true,
 function windowFor(bedtime = BEDTIME, over: Partial<ForkSideSettings> = {}): TonightWindow {
   const s = { ...settings, ...over }
   return {
-    curve: { day: 'monday', bedtime, points: POINTS, length: 240 },
+    curve: { day: 'monday', bedtime, points: POINTS },
     windowStart: bedtime - s.hoursEarly * HOUR,
     windowEnd: bedtime + s.hoursLate * HOUR,
   }
@@ -37,7 +37,7 @@ function ctx(now: number, over: Partial<TickContext> = {}, sideOver: Partial<For
     personOn: false,
     safetyStop: false,
     window: inWindow ? windowFor(BEDTIME, sideOver) : null,
-    nextWindowStart: BEDTIME + 24 * HOUR - HOUR,
+    nextWindow: windowFor(BEDTIME + 24 * HOUR),
     timerRefreshMs: 6 * HOUR,
     ...over,
   }
@@ -118,6 +118,25 @@ describe('starting', () => {
     expect(step.state.note).toMatch(/lying across/)
   })
 
+  it('leaves a body alone in a window that was open when the switch came on', () => {
+    const step = tick({ ...INITIAL_RUN, windowFor: BEDTIME }, ctx(BEDTIME + HOUR, { occupied: true }))
+    expect(step.state.phase).toBe('idle')
+    expect(step.actions).toEqual([])
+  })
+
+  it('still opens a window for someone in bed once the minimum gap ends', () => {
+    const gap = { minimumGapHours: 2 }
+    const inside = tick({ ...INITIAL_RUN, fullRunEndedAt: BEDTIME - HOUR }, ctx(BEDTIME, { occupied: true }, gap))
+    expect(inside.state.phase).toBe('idle')
+    expect(tick(inside.state, ctx(BEDTIME + HOUR, { occupied: true }, gap)).state.phase).toBe('running')
+  })
+
+  it('refreshes the firmware timer while someone reads', () => {
+    const at = BEDTIME - 40 * MIN
+    const step = tick(started(at, { readingMode: true }), ctx(at + 20 * MIN, { occupied: true, timerRefreshMs: 10 * MIN }, { readingMode: true }))
+    expect(kinds(step.actions)).toEqual(['refresh'])
+  })
+
   it('Sleep Now begins the curve at once', () => {
     const at = BEDTIME - 40 * MIN
     const reading = started(at, { readingMode: true })
@@ -153,6 +172,45 @@ describe('Warm up', () => {
     expect(tick(ended.state, ctx(at, { occupied: true, enteredAt: at }, warm)).state.phase).toBe('running')
   })
 
+  it('closes and turns off for Away', () => {
+    const waiting = tick(INITIAL_RUN, ctx(BEDTIME, {}, warm)).state
+    const step = tick(waiting, ctx(BEDTIME + MIN, { away: true }, warm))
+    expect(step.state.phase).toBe('closed')
+    expect(kinds(step.actions)).toEqual(['off'])
+  })
+
+  it('closes and turns off when a person turns the side off', () => {
+    const waiting = tick(INITIAL_RUN, ctx(BEDTIME, {}, warm)).state
+    const step = tick(waiting, ctx(BEDTIME + MIN, { sideOn: false, personOff: true }, warm))
+    expect(step.state.phase).toBe('closed')
+    expect(kinds(step.actions)).toEqual(['off'])
+  })
+
+  it('does not start for someone moving across, and starts for the next real entry', () => {
+    let at = BEDTIME + 10 * MIN
+    let state = tick(INITIAL_RUN, ctx(BEDTIME, {}, warm)).state
+    state = tick(state, ctx(at, { occupied: true, enteredAt: at, movedAcross: true }, warm)).state
+    expect(state).toMatchObject({ phase: 'warming', movedAcross: true })
+    state = tick(state, ctx(at + MIN, { occupied: true }, warm)).state
+    expect(state.phase).toBe('warming')
+    state = tick(state, ctx(at + 2 * MIN, { occupied: false }, warm)).state
+    expect(state).toMatchObject({ phase: 'warming', movedAcross: false })
+    at += 30 * MIN
+    expect(tick(state, ctx(at, { occupied: true, enteredAt: at }, warm)).state.phase).toBe('running')
+  })
+
+  it('still ends at the wait with someone moved across', () => {
+    const waiting = tick(INITIAL_RUN, ctx(BEDTIME, {}, warm)).state
+    const step = tick({ ...waiting, movedAcross: true }, ctx(BEDTIME + 3 * HOUR, { occupied: true }, warm))
+    expect(step.state.phase).toBe('idle')
+    expect(kinds(step.actions)).toEqual(['off'])
+  })
+
+  it('refreshes the firmware timer while waiting', () => {
+    const waiting = tick(INITIAL_RUN, ctx(BEDTIME, {}, warm)).state
+    expect(kinds(tick(waiting, ctx(BEDTIME + 2 * HOUR, { timerRefreshMs: HOUR }, warm)).actions)).toEqual(['refresh'])
+  })
+
   it('is skipped inside the minimum gap', () => {
     const state = { ...INITIAL_RUN, fullRunEndedAt: BEDTIME - 2 * HOUR }
     expect(tick(state, ctx(BEDTIME, {}, warm)).state.phase).toBe('idle')
@@ -186,6 +244,14 @@ describe('trips out of bed', () => {
     expect(out.state).toMatchObject({ phase: 'running', offForTrip: true })
   })
 
+  it('still stops the curve at the first step when a missed tick skips the pause', () => {
+    const state = advance(started(entered), entered + MIN, 4 * 60 - 1).state
+    const left = tick(state, ctx(leaveAt, { occupied: false })).state
+    const step = tick(left, ctx(leaveAt + 61 * MIN, { occupied: false }))
+    expect(kinds(step.actions)).toEqual(['off'])
+    expect(step.state).toMatchObject({ offForTrip: true, pausedAt: leaveAt + 20 * MIN })
+  })
+
   it('picks up where it paused, with the curve later by the pause', () => {
     const out = leftFor(90)
     const zero = out.state.curveZeroAt as number
@@ -214,6 +280,21 @@ describe('trips out of bed', () => {
     expect(blind.actions).toEqual([])
     expect(blind.state.note).toBe('Sensors blind')
     expect(advance(blind.state, leaveAt + 130 * MIN, 5, { occupied: false }).state.pausedAt).toBeNull()
+  })
+})
+
+describe('blind sensors', () => {
+  it('clears the note once sensors return', () => {
+    const entered = BEDTIME + 10 * MIN
+    const blind = tick(started(entered), ctx(entered + MIN, { occupied: null })).state
+    expect(blind.note).toBe('Sensors blind')
+    expect(tick(blind, ctx(entered + 2 * MIN, { occupied: true })).state.note).toBeNull()
+  })
+
+  it('keeps a real note it did not write', () => {
+    const entered = BEDTIME + 10 * MIN
+    const noted = { ...started(entered), note: 'Came back on after the side went off' }
+    expect(tick(noted, ctx(entered + MIN, { occupied: true })).state.note).toBe(noted.note)
   })
 })
 
@@ -317,7 +398,7 @@ describe('a side going off during a run', () => {
   it('closes when a person turned it off', () => {
     const step = tick(running(), ctx(at, { occupied: true, sideOn: false, personOff: true }))
     expect(step.state.phase).toBe('closed')
-    expect(step.actions).toEqual([])
+    expect(kinds(step.actions)).toEqual(['off'])
   })
 
   it('comes back on at the current point after a lapse with someone in bed', () => {
@@ -377,12 +458,23 @@ describe('deliberate commands', () => {
   it('turning a closed side on counts as Back to Bed inside the gap', () => {
     const closed = { ...INITIAL_RUN, phase: 'closed' as const, closedUntil: BEDTIME + 23 * HOUR, fullRunEndedAt: BEDTIME + 9 * HOUR }
     const now = BEDTIME + 20 * HOUR
-    const step = tick({ ...closed, closedUntil: now - MIN }, ctx(now, { personOn: true, window: windowFor(BEDTIME + 24 * HOUR) }))
+    const step = tick(closed, ctx(now, { personOn: true, window: windowFor(BEDTIME + 24 * HOUR) }))
     expect(step.state.phase).toBe('running')
   })
 
-  it('says so when no curve is saved', () => {
+  it('turning a side on between windows starts the next curve', () => {
+    const now = BEDTIME + 12 * HOUR
+    const step = tick(INITIAL_RUN, ctx(now, { personOn: true, window: null, sideOn: true }))
+    expect(step.state).toMatchObject({ phase: 'running', curveZeroAt: now, points: POINTS })
+  })
+
+  it('Start between windows uses the next curve', () => {
     const step = command(INITIAL_RUN, 'start-new', ctx(BEDTIME + 12 * HOUR, { window: null }))
+    expect(kinds(step.actions)).toEqual(['write'])
+  })
+
+  it('says so when no curve is saved', () => {
+    const step = command(INITIAL_RUN, 'start-new', ctx(BEDTIME + 12 * HOUR, { window: null, nextWindow: null }))
     expect(step.actions).toEqual([])
     expect(step.state.note).toMatch(/No curve/)
   })

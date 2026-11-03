@@ -70,8 +70,8 @@ function readBaseline(side: Side, now: number): TemperatureRequest[] {
     ]
     const key = JSON.stringify([timezone, Math.floor(now / 60_000), rows])
     const cached = recurringCache[side]
-    const powerByDay = new Map<string, NightPower>(powers.map(r => [r.dayOfWeek, { onTime: r.time, offTime: r.offTime }]))
-    const baseline = cached?.key === key ? cached.target : recurringTarget(nightRows(rows, powerByDay), timezone, now, occurrenceCaches[side])
+    const powerByDay = () => new Map<string, NightPower>(powers.map(r => [r.dayOfWeek, { onTime: r.time, offTime: r.offTime }]))
+    const baseline = cached?.key === key ? cached.target : recurringTarget(nightRows(rows, powerByDay()), timezone, now, occurrenceCaches[side])
     recurringCache[side] = { key, target: baseline }
     if (baseline) requests.push(baseline)
     requests.push(...alarmTemperatureTargets(

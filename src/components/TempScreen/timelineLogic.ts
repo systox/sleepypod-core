@@ -1,11 +1,11 @@
 import { buildTimeline } from '@/src/components/Schedule/CurveChart'
 import { nightSetPoints, type TempRow } from '@/src/components/Schedule/bothNight'
 import { tonightWindow } from '@/src/components/diagnostics/dashboardLogic'
+import { nightOrder } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK } from '@/src/lib/scheduleTime'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
-const HALF_DAY_MIN = 12 * 60
 /** Gaps shorter than this between a schedule edge and presence aren't worth a label. */
 const MISMATCH_MIN_MS = 15 * MINUTE
 
@@ -44,10 +44,8 @@ export function timelineWindow(now: Date): TimelineWindow {
  * belongs to the morning after `midnight` (same rule as the Scheduler lanes).
  */
 export function nightCurve(temps: TempRow[] | undefined, midnight: Date): CurvePoint[] {
-  const tl = buildTimeline(nightSetPoints(temps, DAYS_OF_WEEK[midnight.getDay()]))
-  const shift = tl.length > 0 && tl[0].minutes < HALF_DAY_MIN ? 24 * 60 : 0
-  return tl.map(p => ({
-    at: new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes + shift).getTime(),
+  return nightOrder(buildTimeline(nightSetPoints(temps, DAYS_OF_WEEK[midnight.getDay()]))).map(p => ({
+    at: new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate(), 0, p.minutes).getTime(),
     temperature: p.temperature,
   }))
 }

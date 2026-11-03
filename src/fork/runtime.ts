@@ -16,10 +16,13 @@ interface ForkRuntime {
   lastBeat: number
   sensorsOkAt: number
   ownershipStaleMs: number
+  detectionOn: boolean
   detectionLive: boolean
   smartSides: Record<Side, boolean>
   personPower: Map<Side, PersonPowerMark>
 }
+
+const PERSON_MARK_FRESH_MS = 2 * 60_000
 
 const globalRuntime = globalThis as typeof globalThis & { __sp_forkRuntime?: ForkRuntime }
 
@@ -29,6 +32,7 @@ export const runtime: ForkRuntime = globalRuntime.__sp_forkRuntime ??= {
   lastBeat: 0,
   sensorsOkAt: 0,
   ownershipStaleMs: 2 * 60_000,
+  detectionOn: false,
   detectionLive: false,
   smartSides: { left: false, right: false },
   personPower: new Map(),
@@ -53,8 +57,9 @@ export function markPersonPower(side: Side, on: boolean, at = Date.now()): void 
   runtime.personPower.set(side, { on, at })
 }
 
-export function takePersonPower(side: Side): PersonPowerMark | null {
+/** The side's latest mark, if it's fresh. An old one says nothing about now. */
+export function takePersonPower(side: Side, now = Date.now()): PersonPowerMark | null {
   const mark = runtime.personPower.get(side)
   runtime.personPower.delete(side)
-  return mark ?? null
+  return mark && now - mark.at <= PERSON_MARK_FRESH_MS ? mark : null
 }

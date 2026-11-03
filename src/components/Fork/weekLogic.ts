@@ -1,10 +1,9 @@
 import type { SavedCurve } from '@/src/hooks/useCurveTemplates'
-import type { DayOfWeek } from '@/src/lib/scheduleTime'
+import { DAY_ORDER, DAY_SHORT, formatDayRange } from '@/src/components/Schedule/scheduleFormat'
+import { hhmmToMinutes, type DayOfWeek } from '@/src/lib/scheduleTime'
 
-export const WEEK_DAYS: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-export const DAY_SHORT: Record<DayOfWeek, string> = {
-  monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
-}
+export { DAY_SHORT }
+export const WEEK_DAYS = DAY_ORDER
 
 export type WeekDays = Record<DayOfWeek, number | null>
 export const EMPTY_WEEK: WeekDays = {
@@ -15,11 +14,6 @@ const DAY_MIN = 24 * 60
 const BAR_START_MIN = 18 * 60
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-const toMinutes = (time: string): number => {
-  const [hour, minute] = time.split(':').map(Number)
-  return hour * 60 + minute
-}
-
 /** Where a time sits on a day's bar, which runs 6 PM to 6 PM. */
 function barPosition(minutes: number): number {
   return ((minutes - BAR_START_MIN + DAY_MIN) % DAY_MIN) / DAY_MIN * 100
@@ -29,20 +23,9 @@ export interface Bar { top: number, height: number }
 
 export function barFor(curve: Pick<SavedCurve, 'bedtime' | 'wake'> | undefined): Bar {
   if (!curve) return { top: 0, height: 0 }
-  const top = barPosition(toMinutes(curve.bedtime))
-  const end = barPosition(toMinutes(curve.wake))
+  const top = barPosition(hhmmToMinutes(curve.bedtime))
+  const end = barPosition(hhmmToMinutes(curve.wake))
   return { top, height: end > top ? end - top : 100 - top }
-}
-
-/** "Mon–Fri", "Mon, Wed" and so on, in week order. */
-export function dayRange(days: DayOfWeek[]): string {
-  const groups: Array<[number, number]> = []
-  for (const index of days.map(d => WEEK_DAYS.indexOf(d)).sort((a, b) => a - b)) {
-    const last = groups[groups.length - 1]
-    if (last && last[1] === index - 1) last[1] = index
-    else groups.push([index, index])
-  }
-  return groups.map(([a, b]) => (a === b ? DAY_SHORT[WEEK_DAYS[a]] : `${DAY_SHORT[WEEK_DAYS[a]]}–${DAY_SHORT[WEEK_DAYS[b]]}`)).join(', ')
 }
 
 /** "Mon · Late Monday, Tue–Sun · Day shift". */
@@ -55,17 +38,28 @@ export function weekSummary(days: WeekDays, curves: ReadonlyMap<number, Pick<Sav
   }
   return parts.map((part) => {
     const name = part.id === null ? 'No curve' : curves.get(part.id)?.name ?? 'Missing'
-    return `${dayRange(part.days)} · ${name}`
+    return `${formatDayRange(part.days)} · ${name}`
   }).join(', ')
 }
 
 const localDate = (date: string): Date => new Date(`${date}T12:00:00`)
 const shortDate = (d: Date): string => `${MONTHS[d.getMonth()]} ${d.getDate()}`
 
+const isoDate = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
 /** The Monday of a date's week, as YYYY-MM-DD. */
 export function mondayOf(now: Date): string {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7), 12)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7), 12))
+}
+
+/** The Monday `weeks` on from an anchor, as YYYY-MM-DD. */
+export function anchorAfter(anchor: string, weeks: number): string {
+  return isoDate(weekStart(anchor, weeks))
+}
+
+/** Which step of an order a week lands on. Weeks before the anchor count back. */
+export function stepOf(week: number, steps: number): number {
+  return ((week % steps) + steps) % steps
 }
 
 /** A Monday `weeks` on from an anchor. */

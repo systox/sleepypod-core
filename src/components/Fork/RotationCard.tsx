@@ -10,7 +10,7 @@ import { useTimeFormatter } from '@/src/hooks/useTimeFormatter'
 import { trpc } from '@/src/utils/trpc'
 import { useForkOverview, useForkRefresh } from './useFork'
 import { WeekBars } from './WeekBars'
-import { dayDate, makeThisWeek, mondayOf, moveStep, repeatText, weekDates, type WeekDays } from './weekLogic'
+import { anchorAfter, dayDate, makeThisWeek, mondayOf, moveStep, repeatText, stepOf, weekDates, type WeekDays } from './weekLogic'
 
 const CHANGE_TIMES = ['12:00', '14:00', '16:00', '18:00']
 
@@ -90,11 +90,10 @@ export function RotationCard({ side, sideName }: { side: Side, sideName: string 
 
   const { rotation, week, thisPresetId } = view
   const n = rotation.steps.length
-  const stepAt = ((week % n) + n) % n
-  const shown = makeThisWeek(rotation.steps, stepAt)
+  const shown = makeThisWeek(rotation.steps, stepOf(week, n))
   const editing = draft !== null
   const list = draft ?? shown
-  const anchor = weekAnchor(rotation.anchorDate, week)
+  const anchor = anchorAfter(rotation.anchorDate, week)
   const changeTime = draftTime ?? rotation.changeTime
   const swapped = rotation.swap?.week === week
   const nextName = nameOf(shown[1 % shown.length])
@@ -148,7 +147,7 @@ export function RotationCard({ side, sideName }: { side: Side, sideName: string 
       <div className={cn('flex flex-col gap-2 @min-[520px]:flex-row @min-[520px]:overflow-x-auto', rotation.paused && !editing && 'opacity-50')}>
         {list.map((id, i) => {
           const current = i === 0
-          const preset = presetOf(current && swapped ? thisPresetId : id)
+          const preset = presetOf(current && swapped && id === shown[0] ? thisPresetId : id)
           return (
             <div key={`${id}-${i}`} className="flex flex-col gap-2 @min-[520px]:flex-1 @min-[520px]:flex-row @min-[520px]:items-center @min-[520px]:gap-2">
               <div
@@ -270,11 +269,4 @@ export function RotationCard({ side, sideName }: { side: Side, sideName: string 
       {(save.error ?? swap.error) && <InlineError>{(save.error ?? swap.error)?.message}</InlineError>}
     </Card>
   )
-}
-
-/** The Monday this week's change belongs to, so the order reads from this week. */
-function weekAnchor(anchorDate: string, week: number): string {
-  const d = new Date(`${anchorDate}T12:00:00`)
-  d.setDate(d.getDate() + week * 7)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }

@@ -34,6 +34,11 @@ describe('bothNight', () => {
     expect(nextSetPoint([], NOW)).toBeNull()
   })
 
+  it('keeps a long late curve on the night it runs', () => {
+    const points = [{ time: '22:00', temperature: 85 }, { time: '02:00', temperature: 81 }, { time: '08:00', temperature: 82 }, { time: '13:00', temperature: 84 }]
+    expect(nightWindow(points, new Date(2026, 8, 28))).toEqual({ start: new Date(2026, 8, 28, 22), end: new Date(2026, 8, 29, 13) })
+  })
+
   it('formats countdowns and night dates', () => {
     expect(formatCountdown((5 * 60 + 21) * 60_000)).toBe('5h 21m')
     expect(formatCountdown(45 * 60_000)).toBe('45m')
