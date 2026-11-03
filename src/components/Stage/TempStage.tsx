@@ -2,6 +2,7 @@
 
 import { useRunCurve } from '@/src/components/Fork/useRunCurve'
 import { useHoldSetting } from '@/src/components/Fork/HoldSetting'
+import { NoiseQuickToggle } from '@/src/components/Fork/NoiseCard'
 import { Link2, Power } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -410,6 +411,7 @@ export function TempStage({ onExit }: { onExit: () => void }) {
             <Power size={14} />
             All off
           </button>
+          <NoiseQuickToggle className={cn(PILL, 'border-[#26262a] text-[#b0b0b6] hover:bg-[#17171a]')} style={GLASS} />
         </div>
         <div data-testid="stage-alerts" className="pointer-events-auto flex w-full max-w-[560px] flex-col gap-2 rounded-card border p-2 empty:hidden min-[1200px]:mt-8" style={{ ...GLASS, borderColor: STAGE.line }}>
           <NoticeStack notices={notices} />

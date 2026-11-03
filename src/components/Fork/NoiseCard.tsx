@@ -1,5 +1,7 @@
 'use client'
 
+import { Volume2 } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import { Button, Card, InlineError, SectionLabel, SelectValue, SettingRow, StatusDot, Toggle } from '@/src/components/ds'
 import type { ForkPodSettings } from '@/src/fork/settings'
 import type { Side } from '@/src/hardware/types'
@@ -48,15 +50,28 @@ export function noiseLine(noise: NoiseView, volume: number, clock: (at: number) 
   return noise.playing ? `Playing${started}${by}` : `Starting${by}`
 }
 
-/** One button for the Temp screen: white noise on or off now. */
-export function NoiseQuickToggle() {
+/**
+ * One button for the Temp screen: white noise on or off now. The 3D stage
+ * passes its own pill look; the card view uses the standard button.
+ */
+export function NoiseQuickToggle({ className, style }: { className?: string, style?: CSSProperties }) {
   const { data } = useForkOverview()
   const set = useSetNoise()
   if (!data) return null
   const on = data.noise.on
+  const label = on ? 'Stop white noise' : 'White noise'
+  const toggle = () => set.mutate({ on: !on })
+  if (className) {
+    return (
+      <button type="button" className={className} style={style} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
+        <Volume2 size={14} />
+        {label}
+      </button>
+    )
+  }
   return (
-    <Button size="sm" disabled={set.isPending} onClick={() => set.mutate({ on: !on })} aria-pressed={on}>
-      {on ? 'Stop white noise' : 'White noise'}
+    <Button size="sm" icon={Volume2} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
+      {label}
     </Button>
   )
 }
