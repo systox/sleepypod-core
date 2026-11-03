@@ -33,6 +33,20 @@ export function nightOrder<T extends { minutes: number }>(timeline: T[]): T[] {
 }
 
 /**
+ * A curve's points in running order when its bedtime and wake are known: it
+ * starts after the middle of the time off. Null when a point has been moved
+ * into that middle, because they no longer describe the curve.
+ */
+export function orderFromWindow<T extends { time: string }>(points: T[], bedtime: string, wake: string): T[] | null {
+  const wakeAt = hhmmToMinutes(wake)
+  const offFor = (hhmmToMinutes(bedtime) - wakeAt + DAY) % DAY
+  const fromMiddle = (time: string) => (hhmmToMinutes(time) - wakeAt - offFor / 2 + 2 * DAY) % DAY
+  const inMiddle = (time: string) => Math.min(fromMiddle(time), DAY - fromMiddle(time)) < offFor / 4
+  if (points.some(p => inMiddle(p.time))) return null
+  return [...points].sort((a, b) => fromMiddle(a.time) - fromMiddle(b.time))
+}
+
+/**
  * A curve belongs to the day it starts, so a time in it can fall on the next
  * calendar day: Monday's 22:30 curve reaches 02:00 on Tuesday, while Monday's
  * 04:00 curve is all on Monday. A row with no power row beside it isn't part

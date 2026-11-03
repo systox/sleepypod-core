@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nightDay, nightOrder, nightRows, runsNextDay } from '../nightDay'
+import { nightDay, nightOrder, nightRows, orderFromWindow, runsNextDay } from '../nightDay'
 
 const evening = { onTime: '22:30', offTime: '07:00' }
 const lateFinish = { onTime: '22:00', offTime: '13:00' }
@@ -47,6 +47,26 @@ describe('nightOrder', () => {
   it('copes with one point and none', () => {
     expect(order(22)).toEqual([22])
     expect(order()).toEqual([])
+  })
+})
+
+describe('orderFromWindow', () => {
+  const order = (times: string[], bedtime: string, wake: string) => orderFromWindow(times.map(time => ({ time })), bedtime, wake)?.map(p => p.time)
+
+  it('starts a curve at its wind-down and ends it after waking', () => {
+    expect(order(['00:00', '13:15', '14:30', '21:45', '22:30'], '22:30', '14:00')).toEqual(['21:45', '22:30', '00:00', '13:15', '14:30'])
+  })
+
+  it('knows a very long curve the points alone would misread', () => {
+    expect(order(['04:00', '10:00', '16:00', '23:00'], '16:00', '10:00')).toEqual(['16:00', '23:00', '04:00', '10:00'])
+  })
+
+  it('keeps a morning curve in clock order', () => {
+    expect(order(['15:00', '04:00', '08:00'], '04:00', '15:00')).toEqual(['04:00', '08:00', '15:00'])
+  })
+
+  it('gives up when a point sits in the middle of the time off', () => {
+    expect(order(['04:00', '15:00'], '22:00', '07:00')).toBeUndefined()
   })
 })
 

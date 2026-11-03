@@ -95,6 +95,27 @@ describe('CurveEditor', () => {
     })
   })
 
+  it('saves a long curve from its own start and end, not a guess from its points', async () => {
+    const long = [
+      { time: '04:00', temperature: 78 },
+      { time: '10:00', temperature: 84 },
+      { time: '16:00', temperature: 82 },
+      { time: '23:00', temperature: 80 },
+    ]
+    const s = render(<CurveEditor onClose={vi.fn()} initialDays={['monday']} initialSetPoints={long} initialWindow={{ bedtime: '16:00', wake: '10:00' }} />)
+    expect(within(rows(s)[0]).getByText('Power on')).toBeTruthy()
+    fireEvent.click(saveCurveButton(s))
+    await waitFor(() => expect(m.put).toHaveBeenCalled())
+    expect(saved()).toMatchObject({ bedtime: '16:00', wake: '10:00' })
+  })
+
+  it('keeps a point moved by hand out past the bedtime and wake boxes in order', async () => {
+    const s = render(<CurveEditor onClose={vi.fn()} initialDays={['monday']} initialSetPoints={[{ time: '04:00', temperature: 78 }, { time: '15:00', temperature: 84 }]} initialWindow={{ bedtime: '22:00', wake: '07:00' }} />)
+    fireEvent.click(saveCurveButton(s))
+    await waitFor(() => expect(m.put).toHaveBeenCalled())
+    expect(saved()).toMatchObject({ bedtime: '04:00', wake: '15:00' })
+  })
+
   it('opens without the rows inside a flat hold', () => {
     const held = [
       { time: '23:00', temperature: 80 },

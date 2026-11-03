@@ -42,6 +42,7 @@ interface EditingCurve {
   setPoints: Array<{ time: string, temperature: number }>
   notes?: string
   /** Set when editing a curve in the library. */
+  window?: { bedtime: string, wake: string }
   id?: number
   name?: string
   active?: boolean
@@ -280,6 +281,7 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
             curveDays: owned.days,
             days: [...new Set(viewSides.flatMap(s => owned.days[s]))],
             setPoints: templateSetPoints(owned),
+            window: { bedtime: owned.bedtime, wake: owned.wake },
             endAction: owned.endAction,
             notes: owned.notes,
           }
@@ -311,6 +313,7 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
         initialEndAction={editor.endAction}
         initialDays={editor.days}
         initialSetPoints={editor.setPoints}
+        initialWindow={editor.window}
         initialNotes={editor.notes}
         curveId={editor.id}
         initialName={editor.name}

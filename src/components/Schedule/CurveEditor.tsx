@@ -25,6 +25,7 @@ import {
 } from '@/src/lib/sleepCurve/generate'
 import { rebaseSetPoints } from '@/src/lib/sleepCurve/rebase'
 import { CURVE_NOTES_MAX } from '@/src/lib/sleepCurve/savePlan'
+import { orderFromWindow } from '@/src/lib/nightDay'
 import { type ScheduleEndAction, simplifySetPoints, sortChronological } from '@/src/lib/scheduleGrouping'
 import { type CurveDays, type DayMove, hasDays, type LibrarySide, NO_DAYS, normalizeDays, planClaims, setPointsToPoints, uniqueCurveName } from '@/src/lib/scheduleLibrary'
 import { useTemperatureUnit } from '@/src/hooks/useTemperatureUnit'
@@ -39,6 +40,8 @@ interface CurveEditorProps {
   initialSetPoints?: Array<{ time: string, temperature: number }>
   /** The curve's optional note. */
   initialNotes?: string
+  /** A saved curve's start and end, which its points alone can't always show. */
+  initialWindow?: { bedtime: string, wake: string }
   /** The library curve being edited; absent for a new curve. */
   curveId?: number
   initialName?: string
@@ -100,6 +103,7 @@ export function CurveEditor({
   initialSetPoints = [],
   initialEndAction = 'turn_off',
   initialNotes = '',
+  initialWindow,
   curveId,
   initialName = '',
   initialActive = true,
@@ -120,8 +124,8 @@ export function CurveEditor({
     const sorted = sortChronological(initialSetPoints)
     const temps = initialSetPoints.map(p => p.temperature)
     return {
-      bedtime: sorted[0]?.time ?? DEFAULT_BEDTIME,
-      wake: sorted[sorted.length - 1]?.time ?? DEFAULT_WAKE,
+      bedtime: initialWindow?.bedtime ?? sorted[0]?.time ?? DEFAULT_BEDTIME,
+      wake: initialWindow?.wake ?? sorted[sorted.length - 1]?.time ?? DEFAULT_WAKE,
       min: temps.length > 0 ? Math.min(...temps) : DEFAULT_MIN_TEMP,
       max: temps.length > 0 ? Math.max(...temps) : DEFAULT_MAX_TEMP,
     }
@@ -151,14 +155,14 @@ export function CurveEditor({
   // Rows in chronological order (overnight wrap aware). The first and last
   // entries drive the Pod's auto power-on and power-off times.
   const orderedPoints = useMemo(() => {
-    const sorted = sortChronological(points)
+    const sorted = orderFromWindow(points, bedtime, wakeTime) ?? sortChronological(points)
     const used = new Set<number>()
     return sorted.map((sp) => {
       const match = points.find(p => !used.has(p.id) && p.time === sp.time && p.temperature === sp.temperature)
       if (match) used.add(match.id)
       return match
     }).filter((p): p is EditorSetPoint => p !== undefined)
-  }, [points])
+  }, [points, bedtime, wakeTime])
 
   const autoOnId = orderedPoints[0]?.id ?? null
   const autoOffId = endAction === 'turn_off' && orderedPoints.length > 1 ? orderedPoints[orderedPoints.length - 1].id : null
@@ -263,13 +267,12 @@ export function CurveEditor({
     }
 
     const taken = new Set(library.templates.filter(t => t.id !== curveId).map(t => t.name))
-    const sorted = sortChronological(points)
     try {
       await library.put({
         id: curveId,
         name: name.trim() || defaultName(days, taken),
-        bedtime: sorted[0].time,
-        wake: sorted[sorted.length - 1].time,
+        bedtime: orderedPoints[0].time,
+        wake: orderedPoints[orderedPoints.length - 1].time,
         points: setPointsToPoints(points),
         notes,
         endAction,
@@ -283,7 +286,7 @@ export function CurveEditor({
       setPendingMoves(null)
       setSaveError(err instanceof Error ? err.message : 'Save failed')
     }
-  }, [points, moves, library, curveId, name, days, notes, endAction, nextDays, active, onClose])
+  }, [points, orderedPoints, moves, library, curveId, name, days, notes, endAction, nextDays, active, onClose])
 
   const editingPoint = editingId !== null ? points.find(p => p.id === editingId) ?? null : null
   const title = isEdit ? 'Edit curve' : 'New curve'
