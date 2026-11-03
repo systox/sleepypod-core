@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nightDay, nightOrder, nightRows, orderFromWindow, runsNextDay } from '../nightDay'
+import { nightDay, nightOrder, nightRows, orderFromStart, orderFromWindow, runsNextDay } from '../nightDay'
 
 const evening = { onTime: '22:30', offTime: '07:00' }
 const lateFinish = { onTime: '22:00', offTime: '13:00' }
@@ -67,6 +67,13 @@ describe('orderFromWindow', () => {
 
   it('gives up when a point sits in the middle of the time off', () => {
     expect(order(['04:00', '15:00'], '22:00', '07:00')).toBeUndefined()
+  })
+})
+
+describe('orderFromStart', () => {
+  it('runs from the curve\'s own first time, whatever its gaps', () => {
+    const points = ['00:00', '13:15', '14:30', '21:45', '22:30'].map(time => ({ time }))
+    expect(orderFromStart(points, '21:45').map(p => p.time)).toEqual(['21:45', '22:30', '00:00', '13:15', '14:30'])
   })
 })
 

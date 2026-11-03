@@ -1,4 +1,4 @@
-import { nightOrder } from '@/src/lib/nightDay'
+import { nightOrder, orderFromStart } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
 
 export type ScheduleEndAction = 'turn_off' | 'maintain'
@@ -71,9 +71,10 @@ export function sortChronological(points: SetPoint[]): SetPoint[] {
  * - any whose removal leaves 12h or more between neighbours, which
  *   sortChronological would then read as an overnight wrap.
  */
-export function simplifySetPoints<P extends SetPoint>(points: P[]): P[] {
+export function simplifySetPoints<P extends SetPoint>(points: P[], start?: string): P[] {
   const pool = [...points]
-  const ordered = sortChronological(points).map((sp) => {
+  // A saved curve knows where it starts, so its order needs no guessing.
+  const ordered = (start ? orderFromStart(points, start) : sortChronological(points)).map((sp) => {
     const i = pool.findIndex(p => p.time === sp.time && p.temperature === sp.temperature)
     return pool.splice(i, 1)[0]
   })

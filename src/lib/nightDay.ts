@@ -32,6 +32,12 @@ export function nightOrder<T extends { minutes: number }>(timeline: T[]): T[] {
   }))
 }
 
+/** A curve's points in running order from its known first time. */
+export function orderFromStart<T extends { time: string }>(points: T[], start: string): T[] {
+  const begin = hhmmToMinutes(start)
+  return [...points].sort((a, b) => (hhmmToMinutes(a.time) - begin + DAY) % DAY - (hhmmToMinutes(b.time) - begin + DAY) % DAY)
+}
+
 /**
  * A curve's points in running order when its bedtime and wake are known: it
  * starts after the middle of the time off. Null when a point has been moved

@@ -52,6 +52,7 @@ export function planCurveSave({
   targetDays,
   clearDays = targetDays,
   setPoints,
+  start,
   endAction = 'turn_off',
   notes,
   existing,
@@ -60,6 +61,8 @@ export function planCurveSave({
   targetDays: DayOfWeek[]
   clearDays?: DayOfWeek[]
   setPoints: SetPoint[]
+  /** The curve's first time, when known; without it the order is worked out from the points. */
+  start?: string
   endAction?: CurveEndAction
   /** Note for the curve; omitted or blank clears any note on those days. */
   notes?: string | null
@@ -73,7 +76,7 @@ export function planCurveSave({
   }
 
   // Rows inside a flat hold are dropped; they never change what the Pod does.
-  const sortedPoints = simplifySetPoints(setPoints)
+  const sortedPoints = simplifySetPoints(setPoints, start)
   const onTime = sortedPoints[0]?.time
   const offTime = sortedPoints[sortedPoints.length - 1]?.time
   const onTemperature = sortedPoints[0]?.temperature

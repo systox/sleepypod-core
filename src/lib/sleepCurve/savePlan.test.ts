@@ -7,6 +7,12 @@ const existing = {
 }
 
 describe('planCurveSave', () => {
+  it('takes the power times from the curve\'s known start when given', () => {
+    const setPoints = [{ time: '21:45', temperature: 80 }, { time: '22:30', temperature: 82 }, { time: '00:00', temperature: 78 }, { time: '13:15', temperature: 78 }, { time: '14:30', temperature: 84 }]
+    const base = { sides: ['left' as const], targetDays: ['monday' as const], setPoints, existing: { temperature: [], power: [] } }
+    expect(planCurveSave({ ...base, start: '21:45' }).power).toMatchObject({ onTime: '21:45', offTime: '14:30' })
+  })
+
   it('replaces the target and cleared days and derives an overnight on/off window', () => {
     const plan = planCurveSave({
       sides: ['left', 'right'],
