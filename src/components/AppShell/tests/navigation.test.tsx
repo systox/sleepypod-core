@@ -111,7 +111,7 @@ describe('responsive navigation', () => {
     state.health = { status: 'ok', database: { status: 'ok' }, scheduler: {}, iptables: { ok: true } }
     const { rerender } = render(<Sidebar />, { wrapper })
     // The shell keeps sensHealth subscribed on every page, not just System.
-    expect(subscription).toHaveBeenCalledWith({ sensors: ['sensHealth'] })
+    expect(subscription).toHaveBeenCalledWith({ sensors: ['sensHealth', 'capSense', 'capSense2'] })
     expect(screen.queryByTestId('footer-issues')).toBeNull()
     state.frames = { sensHealth: { type: 'sensHealth', ts: 1, version: 1, left: { connected: true }, right: { connected: true } } }
     rerender(<Sidebar />)
