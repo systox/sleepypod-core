@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Button, Card, InlineError, SectionLabel, SegmentedControl, SelectValue, SettingRow, Toggle } from '@/src/components/ds'
+import { useCurveTemplates } from '@/src/hooks/useCurveTemplates'
 import type { ForkPodSettings, ForkSideSettings } from '@/src/fork/settings'
 import type { Side } from '@/src/hardware/types'
 import { trpc } from '@/src/utils/trpc'
@@ -31,6 +32,14 @@ const SIDE_ROWS: Array<{ key: SideNumber, label: string, sub?: string, step?: nu
   { key: 'falseStartOutMinutes', label: 'False start: stays out for, minutes' },
   { key: 'shortRunHours', label: 'Hours of curve before a run uses up the night', step: 0.5 },
   { key: 'moveAcrossMinutes', label: 'Moving-across window, minutes' },
+  { key: 'surfaceLowF', label: 'Surface range low, °F' },
+  { key: 'surfaceHighF', label: 'Surface range high, °F' },
+  { key: 'surfaceMaxOffsetF', label: 'Largest surface nudge, °F' },
+  { key: 'surfaceStepMinutes', label: 'Minutes between surface nudges', sub: 'Water takes about 20 minutes to reach the surface' },
+  { key: 'suggestNights', label: 'Suggestions: nights looked at' },
+  { key: 'suggestNeeded', label: 'Suggestions: nights with the same presses' },
+  { key: 'suggestStepF', label: 'Suggestion step, °F' },
+  { key: 'suggestIgnoreMinutes', label: 'Presses ignored after the other side gets in, minutes' },
 ]
 
 const POD_ROWS: Array<{ key: PodNumber, label: string, step?: number }> = [
@@ -40,6 +49,7 @@ const POD_ROWS: Array<{ key: PodNumber, label: string, step?: number }> = [
   { key: 'ownershipStaleMinutes', label: 'Weekly takeover, minutes' },
   { key: 'timerRefreshHours', label: 'Timer refresh, hours', step: 0.5 },
   { key: 'maxFailedStartups', label: 'Failed startups before stopping' },
+  { key: 'followMinutes', label: 'Moving across: stays this long before following, minutes' },
 ]
 
 const DETECTION = [
@@ -48,7 +58,13 @@ const DETECTION = [
   { value: 'live', label: 'Live' },
 ] as const
 
-function NumberField({ value, step = 1, label, onSave }: { value: number, step?: number, label: string, onSave: (n: number) => void }) {
+const SURFACE = [
+  { value: 'off', label: 'Off' },
+  { value: 'watch', label: 'Watch-only' },
+  { value: 'on', label: 'On' },
+] as const
+
+export function NumberField({ value, step = 1, label, onSave }: { value: number, step?: number, label: string, onSave: (n: number) => void }) {
   const [draft, setDraft] = useState<string | null>(null)
   return (
     <input
@@ -78,6 +94,8 @@ export function ForkSettings({ pod, left, right, names }: {
   const saveSide = trpc.fork.setSideSettings.useMutation({ onSuccess: refresh })
   const savePod = trpc.fork.setPodSettings.useMutation({ onSuccess: refresh })
   const markEmpty = trpc.fork.markBedEmpty.useMutation({ onSuccess: refresh })
+  const { templates } = useCurveTemplates()
+  const curveOptions = [{ value: 0, label: 'None' }, ...(templates ?? []).map(t => ({ value: t.id, label: t.name }))]
   const settings = side === 'left' ? left : right
   const steps = settings.tripStepMinutes
   const error = saveSide.error ?? savePod.error
@@ -98,6 +116,9 @@ export function ForkSettings({ pod, left, right, names }: {
         <SettingRow label="A press restarts a closed side" sub="Leave off until the bench test shows a press on an off side is seen.">
           <Toggle on={pod.pressStartsClosedSide} label="A press restarts a closed side" onChange={pressStartsClosedSide => savePod.mutate({ patch: { pressStartsClosedSide } })} />
         </SettingRow>
+        <SettingRow label="Temperature follows a lone sleeper who moves across" sub="Their curve moves with them and the side they left closes. Needs Smart start on both sides.">
+          <Toggle on={pod.followOn} label="Temperature follows a lone sleeper who moves across" onChange={followOn => savePod.mutate({ patch: { followOn } })} />
+        </SettingRow>
         <SettingRow label="Bed is empty now" sub="Use after changing bedding, with nobody on the bed.">
           <Button disabled={markEmpty.isPending} onClick={() => markEmpty.mutate()}>Mark empty</Button>
         </SettingRow>
@@ -110,6 +131,27 @@ export function ForkSettings({ pod, left, right, names }: {
         value={side}
         onChange={setSide}
       />
+      <Card className="gap-2.5" key={`${side}-features`}>
+        <SettingRow divider={false} label="Surface range" sub="Nudges the water to keep the cover's surface in range. Watch-only logs what it would do. Needs detection.">
+          <SelectValue label="Surface range" value={settings.surfaceMode} options={[...SURFACE]} onChange={surfaceMode => saveSide.mutate({ side, patch: { surfaceMode } })} />
+        </SettingRow>
+        <SettingRow label="Morning suggestions" sub="Offers to move an hour of the curve when presses keep landing there. Nothing changes until you accept.">
+          <Toggle on={settings.suggestOn} label="Morning suggestions" onChange={suggestOn => saveSide.mutate({ side, patch: { suggestOn } })} />
+        </SettingRow>
+        <SettingRow label="Self-test nights" sub="Curves A and B take turns on the days either already runs. The Nights tab compares them.">
+          <Toggle on={settings.selfTestOn} label="Self-test nights" onChange={selfTestOn => saveSide.mutate({ side, patch: { selfTestOn } })} />
+        </SettingRow>
+        {(['selfTestCurveA', 'selfTestCurveB'] as const).map(key => (
+          <SettingRow key={key} label={key === 'selfTestCurveA' ? 'Curve A' : 'Curve B'}>
+            <SelectValue
+              label={key === 'selfTestCurveA' ? 'Curve A' : 'Curve B'}
+              value={settings[key] ?? 0}
+              options={curveOptions}
+              onChange={id => saveSide.mutate({ side, patch: { [key]: id === 0 ? null : id } })}
+            />
+          </SettingRow>
+        ))}
+      </Card>
       <Card className="gap-2.5" key={side}>
         {SIDE_ROWS.map((row, i) => (
           <SettingRow key={row.key} divider={i > 0} label={row.label} sub={row.sub}>

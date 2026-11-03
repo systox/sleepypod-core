@@ -5,11 +5,15 @@
  */
 import type { Side } from '@/src/hardware/types'
 import { clearPressWaits, stepSmoothReturn } from './holds'
+import { noteNightStart } from './nights'
+import { stopNoise, syncNoise } from './noise'
 import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
-import { tickSide } from './smart/runner'
+import { syncSelfTest } from './selftest'
+import { checkFollow, tickSide } from './smart/runner'
 import { closeStore, dailyHousekeeping, readKey, storeProblem, writeKey } from './store'
+import { clearSurfaces, stepSurface } from './surface'
 import { syncRotation } from './weeks'
 
 const SIDES: Side[] = ['left', 'right']
@@ -50,9 +54,16 @@ function refreshFlags(): void {
   runtime.lastBeat = Date.now()
 }
 
+function warnFailed(what: string) {
+  return (error: unknown) => {
+    console.warn(`[fork] ${what} failed:`, error instanceof Error ? error.message : error)
+  }
+}
+
 const smartTick = async (): Promise<void> => {
   refreshFlags()
   if (!runtime.detectionLive || runtime.disabled) return
+  await checkFollow().catch(warnFailed('move-across check'))
   for (const side of SIDES) {
     // A side that keeps failing must not hold up the other one.
     await tickSide(side).catch((error) => {
@@ -63,11 +74,24 @@ const smartTick = async (): Promise<void> => {
 
 const fastTick = async (): Promise<void> => {
   closeStaleMinute()
-  for (const side of SIDES) await stepSmoothReturn(side)
+  for (const side of SIDES) {
+    await stepSmoothReturn(side).catch(warnFailed(`${side} smooth return`))
+    await stepSurface(side).catch(warnFailed(`${side} surface range`))
+  }
+  syncNoise()
 }
 
 const rotationTick = async (): Promise<void> => {
-  for (const side of SIDES) await syncRotation(side)
+  for (const side of SIDES) {
+    await syncRotation(side).catch(warnFailed(`${side} rotation`))
+    await syncSelfTest(side).catch(warnFailed(`${side} self-test nights`))
+    try {
+      noteNightStart(side)
+    }
+    catch (error) {
+      warnFailed(`${side} night record`)(error)
+    }
+  }
 }
 
 export function startForkService(): void {
@@ -114,6 +138,8 @@ export function stopForkService(): void {
   }
   runtime.running = false
   clearPressWaits()
+  clearSurfaces()
+  stopNoise()
   try {
     closeStore()
   }

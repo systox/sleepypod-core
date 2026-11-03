@@ -11,6 +11,7 @@ export interface SideView {
   tonight: { bedtime: number, windowStart: number, windowEnd: number, points: Array<{ offset: number, temperature: number }> } | null
   upcoming: { bedtime: number, windowStart: number, windowEnd: number, firstTemperature: number } | null
   rotation: { thisPresetId: string } | null
+  surface: { reading: number | null, offset: number }
 }
 
 export interface NextStep { at: number, temperature: number }

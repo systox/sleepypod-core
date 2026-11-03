@@ -25,6 +25,20 @@ export const sideSettingsSchema = z.object({
   falseStartOutMinutes: z.number().min(0).max(240),
   shortRunHours: z.number().min(0).max(14),
   moveAcrossMinutes: z.number().min(0).max(120),
+  /** Hold the cover's surface in a range: off, log only, or nudge the water. Needs detection. */
+  surfaceMode: z.enum(['off', 'watch', 'on']),
+  surfaceLowF: z.number().min(60).max(100),
+  surfaceHighF: z.number().min(60).max(100),
+  surfaceMaxOffsetF: z.number().min(0).max(8),
+  surfaceStepMinutes: z.number().min(5).max(120),
+  suggestOn: z.boolean(),
+  suggestNights: z.number().int().min(2).max(7),
+  suggestNeeded: z.number().int().min(1).max(7),
+  suggestStepF: z.number().min(1).max(3),
+  suggestIgnoreMinutes: z.number().min(0).max(60),
+  selfTestOn: z.boolean(),
+  selfTestCurveA: z.number().int().nullable(),
+  selfTestCurveB: z.number().int().nullable(),
 })
 
 export const podSettingsSchema = z.object({
@@ -40,6 +54,13 @@ export const podSettingsSchema = z.object({
   ownershipStaleMinutes: z.number().min(1).max(30),
   timerRefreshHours: z.number().min(1).max(7.5),
   maxFailedStartups: z.number().int().min(1).max(20),
+  /** A lone sleeper who moves across and stays takes their curve with them. */
+  followOn: z.boolean(),
+  followMinutes: z.number().min(5).max(120),
+  noiseMode: z.enum(['off', 'on', 'in-bed']),
+  noiseSide: z.enum(['left', 'right', 'either']),
+  noiseVolume: z.number().int().min(0).max(100),
+  noiseColor: z.enum(['white', 'pink', 'brown']),
 })
 
 export type ForkSideSettings = z.infer<typeof sideSettingsSchema>
@@ -66,6 +87,19 @@ export const DEFAULT_SIDE_SETTINGS: ForkSideSettings = {
   falseStartOutMinutes: 15,
   shortRunHours: 2,
   moveAcrossMinutes: 10,
+  surfaceMode: 'off',
+  surfaceLowF: 86,
+  surfaceHighF: 88,
+  surfaceMaxOffsetF: 4,
+  surfaceStepMinutes: 20,
+  suggestOn: false,
+  suggestNights: 3,
+  suggestNeeded: 2,
+  suggestStepF: 1,
+  suggestIgnoreMinutes: 10,
+  selfTestOn: false,
+  selfTestCurveA: null,
+  selfTestCurveB: null,
 }
 
 export const DEFAULT_RIGHT_SHARE = 0.3
@@ -81,4 +115,10 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   ownershipStaleMinutes: 2,
   timerRefreshHours: 6,
   maxFailedStartups: 3,
+  followOn: false,
+  followMinutes: 20,
+  noiseMode: 'off',
+  noiseSide: 'either',
+  noiseVolume: 20,
+  noiseColor: 'pink',
 }

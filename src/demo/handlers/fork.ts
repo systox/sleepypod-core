@@ -10,6 +10,7 @@ const side = (otherSideShare: number) => ({
   tonight: null,
   upcoming: null,
   rotation: null,
+  surface: { reading: null, offset: 0 },
 })
 
 export const fork: DemoHandlers<'fork'> = {
@@ -18,6 +19,7 @@ export const fork: DemoHandlers<'fork'> = {
     dailyJobs: { prime: false, reboot: false },
     health: { running: true, disabled: null, sensorsFresh: true, lastBeat: Date.now() },
     pod: DEFAULT_POD_SETTINGS,
+    noise: { playing: false, problem: null },
     left: side(DEFAULT_SIDE_SETTINGS.otherSideShare),
     right: side(DEFAULT_RIGHT_SHARE),
   }),
@@ -27,6 +29,9 @@ export const fork: DemoHandlers<'fork'> = {
   markBedEmpty: () => ({ ok: true }),
   nights: () => ({ events: [], wrong: [] }),
   markWrong: () => ({ ok: true }),
+  suggestions: () => [],
+  answerSuggestion: () => ({ ok: true }),
+  selfTest: () => [],
   listWeeks: () => [],
   saveWeek: input => ({ ...input, id: input.id ?? 'demo' }),
   deleteWeek: () => ({ ok: true }),

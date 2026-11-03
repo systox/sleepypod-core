@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SIDE_SETTINGS, type ForkSideSettings } from '../../settings'
 import type { TonightWindow } from '../curves'
-import { command, INITIAL_RUN, tick, type Action, type RunState, type TickContext } from '../engine'
+import { command, follow, INITIAL_RUN, tick, type Action, type RunState, type TickContext } from '../engine'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -433,6 +433,27 @@ describe('a side going off during a run', () => {
   it('refreshes the firmware timer during a flat stretch', () => {
     const out = advance(started(entered), entered + MIN, 6 * 60 + 1)
     expect(kinds(out.actions)).toEqual(['refresh'])
+  })
+})
+
+describe('following a lone sleeper across', () => {
+  it('carries the curve on from where it was and closes the side left behind', () => {
+    const entered = BEDTIME + 10 * MIN
+    const source = advance(started(entered), entered + MIN, 120).state
+    const now = entered + 121 * MIN
+    const moved = follow(INITIAL_RUN, source, { now, settings, sourceSettings: settings, sourceNextWindow: windowFor(BEDTIME + 24 * HOUR) })
+    expect(moved.target.state).toMatchObject({ phase: 'running', curveZeroAt: source.curveZeroAt, points: POINTS })
+    expect(kinds(moved.target.actions)).toEqual(['write'])
+    expect(moved.source.state).toMatchObject({ phase: 'closed', closedUntil: BEDTIME + 23 * HOUR })
+    expect(kinds(moved.source.actions)).toEqual(['off'])
+  })
+
+  it('keeps the point a paused curve had reached', () => {
+    const entered = BEDTIME + 10 * MIN
+    const source = { ...advance(started(entered), entered + MIN, 120).state, pausedAt: entered + 100 * MIN }
+    const now = entered + 130 * MIN
+    const moved = follow(INITIAL_RUN, source, { now, settings, sourceSettings: settings, sourceNextWindow: null })
+    expect(moved.target.state.curveZeroAt).toBe(entered + 30 * MIN)
   })
 })
 

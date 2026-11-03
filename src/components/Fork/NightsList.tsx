@@ -6,6 +6,7 @@ import { Button, Card, Skeleton } from '@/src/components/ds'
 import { formatClock } from '@/src/lib/timeFormat'
 import { useTimeFormat } from '@/src/providers/TimeFormatProvider'
 import { trpc } from '@/src/utils/trpc'
+import { MorningSuggestions, SelfTestSummary } from './MorningSuggestions'
 import { groupNights } from './tonightLogic'
 
 const DAY_MS = 86_400_000
@@ -24,6 +25,9 @@ export function NightsList({ names, now }: { names: { left: string, right: strin
   if (rows.length === 0) return <Card><span className="text-[13px] text-fg-2">No nights logged yet. Detection has to be on to log them.</span></Card>
   return (
     <div className="flex flex-col gap-2.5">
+      <MorningSuggestions names={names} />
+      <SelfTestSummary side="left" name={names.left} />
+      <SelfTestSummary side="right" name={names.right} />
       {rows.map(row => (
         <Card key={row.key} className="gap-1.5">
           <div className="flex items-baseline gap-2">

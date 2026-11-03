@@ -13,6 +13,7 @@ import { trpc } from '@/src/utils/trpc'
 import { ForkSettings } from './ForkSettings'
 import { describeSide, nextStep, type SideView } from './tonightLogic'
 import { NightsList } from './NightsList'
+import { NoiseCard } from './NoiseCard'
 import { TonightChart } from './TonightChart'
 import { useForkOverview, useForkRefresh } from './useFork'
 
@@ -48,6 +49,12 @@ function SideCard({ side, name, view, now }: { side: Side, name: string, view: S
         ? <span className="text-[13px] text-fg-2">{`Easing back to ${formatSetpointF(view.fade.curve, unit)} by ${clock(view.fade.by)}`}</span>
         : step && <span className="text-[13px] text-fg-2">{`Next: ${formatSetpointF(step.temperature, unit)} at ${clock(step.at)}`}</span>}
       {run.note && <span className="text-[13px] text-fg-2">{run.note}</span>}
+      {view.settings.surfaceMode !== 'off' && (
+        <span className="text-[13px] text-fg-2">
+          {`Surface ${view.surface.reading === null ? 'unknown' : formatSetpointF(view.surface.reading, unit)} · range ${formatSetpointF(view.settings.surfaceLowF, unit)} to ${formatSetpointF(view.settings.surfaceHighF, unit)}`
+            + (view.settings.surfaceMode === 'watch' ? ' · watching only' : view.surface.offset !== 0 ? ` · water ${view.surface.offset > 0 ? '+' : ''}${view.surface.offset}°F` : '')}
+        </span>
+      )}
       <TonightChart side={side} view={view} now={now} />
       {view.settings.smartStart && (
         <div className="flex flex-wrap gap-2">
@@ -107,6 +114,8 @@ export function TonightPage() {
             {`${data.pod.detection === 'off' ? 'Off' : data.pod.detection === 'watch' ? 'Watch-only' : 'Live'} · ${health?.sensorsFresh ? 'sensors reporting' : 'sensors blind'}`}
           </div>
           {data.pod.detection === 'live' || <span className="text-[13px] text-fg-2">Smart start only acts while detection is live. Set it in Settings once the watch-only nights pass.</span>}
+          <SectionLabel className="mt-1">White noise</SectionLabel>
+          <NoiseCard pod={data.pod} noise={data.noise} names={sideNames} />
         </>
       )}
       {data && view === 'nights' && <NightsList names={sideNames} now={data.now} />}

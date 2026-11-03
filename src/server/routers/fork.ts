@@ -4,6 +4,10 @@ import { publicProcedure, router } from '@/src/server/trpc'
 import { sideSchema } from '@/src/server/validation-schemas'
 import { markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
 import { fadeOf } from '@/src/fork/holds'
+import { noiseStatus } from '@/src/fork/noise'
+import { selfTestSummary } from '@/src/fork/selftest'
+import { acceptSuggestion, dismissSuggestion, suggestionsFor } from '@/src/fork/suggestions'
+import { surfaceView } from '@/src/fork/surface'
 import { serviceHealth } from '@/src/fork/service'
 import { getPodSettings, getSideSettings, podSettingsSchema, setPodSettings, setSideSettings, sideSettingsSchema } from '@/src/fork/settings'
 import { noteSwitchedOn, runCommand, runStateOf, windowsOf } from '@/src/fork/smart/runner'
@@ -36,6 +40,7 @@ function sideView(side: Side, now: number) {
       ? { bedtime: shownWindow.curve.bedtime, windowStart: shownWindow.windowStart, windowEnd: shownWindow.windowEnd, firstTemperature: shownWindow.curve.points[0].temperature }
       : null,
     rotation: rotationView(side, now),
+    surface: surfaceView(side, now),
   }
 }
 
@@ -53,6 +58,7 @@ export const forkRouter = router({
         dailyJobs: { prime: Boolean(device?.primePodDaily), reboot: Boolean(device?.rebootDaily) },
         health: serviceHealth(),
         pod: getPodSettings(),
+        noise: noiseStatus(),
         left: sideView('left', now),
         right: sideView('right', now),
       }
@@ -121,6 +127,29 @@ export const forkRouter = router({
       logEvent(null, 'marked-wrong', { id: input.id })
       return { ok: true }
     }),
+
+  /** Morning suggestions for both sides. */
+  suggestions: publicProcedure
+    .input(z.object({}).optional())
+    .query(() => SIDES.flatMap(side => suggestionsFor(side))),
+
+  answerSuggestion: publicProcedure
+    .input(z.object({ side: sideSchema, id: z.string().min(1).max(200), accept: z.boolean() }).strict())
+    .mutation(async ({ input }) => {
+      try {
+        if (input.accept) await acceptSuggestion(input.side, input.id)
+        else dismissSuggestion(input.side, input.id)
+        return { ok: true }
+      }
+      catch (error) {
+        failed('change the curve', error)
+      }
+    }),
+
+  /** How each self-test curve's nights went. */
+  selfTest: publicProcedure
+    .input(z.object({ side: sideSchema }).strict())
+    .query(({ input }) => selfTestSummary(input.side)),
 
   listWeeks: publicProcedure
     .input(z.object({}).optional())

@@ -12,6 +12,7 @@ import { activeSleeperSides, scheduleSourceSide, type BedConfiguration } from '@
 import { broadcastMutationStatus } from '@/src/streaming/broadcastMutationStatus'
 import { nightRows, type NightPower } from '@/src/lib/nightDay'
 import { defaultHoldMs } from '@/src/fork/holds'
+import { withSurfaceOffset } from '@/src/fork/surface'
 import { alarmTemperatureTargets, recurringTarget, sessionTarget, type AlarmOccurrenceCache, type RecurringOccurrenceCache, type WeeklyTarget } from './baseline'
 import { TemperatureController, type TemperatureRequest } from './controller'
 
@@ -107,7 +108,7 @@ function readBaseline(side: Side, now: number): TemperatureRequest[] {
       }
     }
   }
-  return requests
+  return withSurfaceOffset(side, requests)
 }
 
 const globalState = globalThis as typeof globalThis & {

@@ -24,6 +24,8 @@ export function getSideSettings(side: Side): ForkSideSettings {
 
 export function setSideSettings(side: Side, patch: Partial<ForkSideSettings>): ForkSideSettings {
   const next = sideSettingsSchema.parse({ ...getSideSettings(side), ...patch })
+  if (next.surfaceLowF >= next.surfaceHighF) throw new Error('The surface range\'s low must be below its high')
+  if (next.suggestNeeded > next.suggestNights) throw new Error('Suggestions can\'t need more nights than they look at')
   writeKey(`settings:${side}`, next)
   return next
 }

@@ -121,7 +121,7 @@ function writeFrom(state: RunState, settings: ForkSideSettings, now: number): Ac
   return { kind: 'write', curveZeroAt: state.curveZeroAt as number, endsAt: backstopAt, points: state.points as CurvePoint[] }
 }
 
-function beginCurve(state: RunState, curve: Pick<Curve, 'points' | 'bedtime'>, ctx: TickContext, zeroAt: number): RunState {
+function beginCurve(state: RunState, curve: Pick<Curve, 'points' | 'bedtime'>, ctx: Pick<TickContext, 'now'>, zeroAt: number): RunState {
   return {
     ...state,
     phase: zeroAt > ctx.now ? 'reading' : 'running',
@@ -147,7 +147,7 @@ function endRun(state: RunState): RunState {
   }
 }
 
-function close(state: RunState, ctx: TickContext, reason: string, full: boolean): RunState {
+function close(state: RunState, ctx: Pick<TickContext, 'now' | 'nextWindow'>, reason: string, full: boolean): RunState {
   return {
     ...endRun(state),
     phase: 'closed',
@@ -376,6 +376,34 @@ function returnToBed(state: RunState, ctx: TickContext, events: Decision['events
   events.push({ kind: 'returned', detail: { outMinutes: Math.round(out / MINUTE) } })
   if (paused === null && !state.offForTrip) return { state: next, actions: [], events }
   return { state: next, actions: [writeFrom(next, settings, now)], events }
+}
+
+export interface FollowContext {
+  now: number
+  /** The settings of the side the sleeper moved to, and of the side they left. */
+  settings: ForkSideSettings
+  sourceSettings: ForkSideSettings
+  sourceNextWindow: TonightWindow | null
+}
+
+/**
+ * A lone sleeper moved across and stayed: their curve carries on under them
+ * on this side from the point it had reached, and the side they left closes.
+ */
+export function follow(target: RunState, source: RunState, ctx: FollowContext): { target: Decision, source: Decision } {
+  const { now } = ctx
+  const reached = position(source, now)
+  const begun = beginCurve(target, { points: source.points as CurvePoint[], bedtime: source.bedtime ?? now }, ctx, now - reached * MINUTE)
+  const moved: RunState = { ...begun, phase: 'running', backstopFrom: source.backstopFrom ?? now, outMs: source.outMs, note: 'Followed from the other side' }
+  const full = curveMs(source, now) >= ctx.sourceSettings.shortRunHours * HOUR
+  return {
+    target: { state: moved, actions: [writeFrom(moved, ctx.settings, now)], events: [{ kind: 'follow-in' }] },
+    source: {
+      state: close(source, { now, nextWindow: ctx.sourceNextWindow }, 'Moved to the other side', full),
+      actions: source.offForTrip ? [] : [{ kind: 'off' }],
+      events: [{ kind: 'follow-out' }],
+    },
+  }
 }
 
 export function tick(state: RunState, ctx: TickContext): Decision {
