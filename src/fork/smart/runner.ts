@@ -136,6 +136,7 @@ export function noteSwitchedOn(side: Side, now = Date.now()): void {
 }
 
 const isRunning = (state: RunState) => state.phase === 'running' || state.phase === 'reading'
+const isAway = (side: Side) => db.select({ away: sideSettings.awayMode }).from(sideSettings).where(eq(sideSettings.side, side)).get()?.away ?? false
 
 /** Whether the side's latest entry came from someone moving across, not a second person getting in. */
 function movedAcrossAt(side: Side, since: number): boolean {
@@ -154,7 +155,8 @@ export async function checkFollow(now = Date.now()): Promise<void> {
     if (!runtime.smartSides[from] || !runtime.smartSides[to]) continue
     const source = runStateOf(from)
     const target = runStateOf(to)
-    if (!isRunning(source) || isRunning(target) || source.points === null) continue
+    // A curve still waiting for bedtime has nothing to carry across yet.
+    if (source.phase !== 'running' || isRunning(target) || source.points === null || isAway(to)) continue
     const here = presenceOf(to)
     if (presenceOf(from).occupied !== false || here.occupied !== true || here.since === null) continue
     if (now - here.since < pod.followMinutes * MINUTE || !movedAcrossAt(to, here.since)) continue

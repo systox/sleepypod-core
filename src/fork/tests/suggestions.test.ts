@@ -29,17 +29,23 @@ describe('moving one hour of a curve', () => {
   const points = { '23:00': 84, '00:00': 82, '01:00': 80, '05:00': 84 }
 
   it('adds edges so the rest of the curve keeps its temperatures', () => {
-    expect(shiftPart(points, '23:00', 180, 240, 1, 55, 90)).toEqual({
+    expect(shiftPart(points, '23:00', '05:00', 180, 240, 1, 55, 90)).toEqual({
       '23:00': 84, '00:00': 82, '01:00': 80, '02:00': 81, '03:00': 80, '05:00': 84,
     })
   })
 
   it('moves points already in the hour and keeps the allowed range', () => {
-    expect(shiftPart(points, '23:00', 0, 60, 8, 55, 90)).toEqual({ '23:00': 90, '00:00': 82, '01:00': 80, '05:00': 84 })
+    expect(shiftPart(points, '23:00', '05:00', 0, 60, 8, 55, 90)).toEqual({ '23:00': 90, '00:00': 82, '01:00': 80, '05:00': 84 })
   })
 
   it('leaves a curve alone past its end', () => {
-    expect(shiftPart(points, '23:00', 600, 660, 1, 55, 90)).toEqual(points)
+    expect(shiftPart(points, '23:00', '05:00', 600, 660, 1, 55, 90)).toEqual(points)
+  })
+
+  it('leaves a wind-down point before bedtime alone and adds nothing after wake', () => {
+    const windDown = { '22:30': 84, '01:00': 80, '07:00': 84, '21:45': 82 }
+    expect(shiftPart(windDown, '22:30', '07:00', 480, 540, 1, 55, 90)).toEqual({ ...windDown, '06:30': 81 })
+    expect(shiftPart(windDown, '22:30', '07:00', 510, 570, 1, 55, 90)).toEqual(windDown)
   })
 })
 
@@ -107,6 +113,15 @@ describe('morning suggestions', () => {
     expect(saved?.points).toMatchObject({ '01:00': 81, '02:00': 80 })
     expect(db.select().from(temperatureSchedules).where(eq(temperatureSchedules.time, '02:00')).all()).toHaveLength(1)
     expect(suggestionsFor('left', now)).toEqual([])
+  })
+
+  it('starts afresh after a change, so the same shift is not offered again', async () => {
+    night(0, [2.5 * HOUR])
+    night(1, [2.5 * HOUR])
+    const accepted = BED + 2 * DAY
+    await acceptSuggestion('left', suggestionsFor('left', accepted)[0].id, accepted)
+    night(2, [2.5 * HOUR])
+    expect(suggestionsFor('left', BED + 3 * DAY)).toEqual([])
   })
 
   it('stays away once dismissed', () => {

@@ -67,23 +67,30 @@ function start(command: string, now: number): void {
     if (state.child !== child) return
     state.child = null
     state.problem = `The noise player stopped${code === null ? '' : ` (exit ${code})`}${lastError ? `: ${lastError}` : ''}`
+    // A retry that fails the same way isn't news, so only the first is logged.
+    if (state.failedKey !== state.key) logEvent(null, 'noise-failed', { code, error: lastError })
     state.failedKey = state.key
     state.failedAt = Date.now()
     state.key = null
-    logEvent(null, 'noise-failed', { code, error: lastError })
   })
+  const retry = state.failedKey === command
   state.child = child
   state.key = command
-  state.problem = null
-  logEvent(null, 'noise-on', { at: now })
+  if (!retry) {
+    state.problem = null
+    logEvent(null, 'noise-on', { at: now })
+  }
 }
 
 /** One check: play or stop to match the setting and the bed. */
 export function syncNoise(now = Date.now()): void {
   const pod = getPodSettings()
   const fresh = sensorsFresh(now)
+  // In-bed mode can't judge the bed while sensors are blind, so it keeps what's playing.
+  if (!fresh && pod.noiseMode === 'in-bed' && state.child && state.key === noiseCommand(pod)) return
   const occupied = { left: fresh ? presenceOf('left').occupied : null, right: fresh ? presenceOf('right').occupied : null }
   if (!wantsNoise(pod, occupied)) {
+    state.failedKey = null
     if (state.child) logEvent(null, 'noise-off')
     stopNoise()
     return

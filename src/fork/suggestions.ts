@@ -38,6 +38,8 @@ export interface Suggestion {
 }
 
 const doneKey = (side: Side) => `suggestions-done:${side}`
+/** When a suggestion last changed a curve: nights before it ran the old curve. */
+const changedKey = (curveId: number) => `suggestion-changed:${curveId}`
 const clock = (minutes: number): string => {
   const m = ((minutes % DAY_MIN) + DAY_MIN) % DAY_MIN
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
@@ -46,19 +48,21 @@ const clock = (minutes: number): string => {
 /**
  * The saved curve with one stretch moved by `delta`, clamped to the allowed
  * range. Points are added at the stretch's edges where needed, so the curve
- * outside it keeps exactly the temperatures it had.
+ * outside it keeps exactly the temperatures it had. Nothing moves past the
+ * curve's wake, so points kept before bedtime stay where they are.
  */
-export function shiftPart(points: Record<string, number>, bedtime: string, fromMinute: number, toMinute: number, delta: number, coolest: number, warmest: number): Record<string, number> {
+export function shiftPart(points: Record<string, number>, bedtime: string, wake: string, fromMinute: number, toMinute: number, delta: number, coolest: number, warmest: number): Record<string, number> {
   const start = hhmmToMinutes(bedtime)
   const offsetOf = (time: string) => (hhmmToMinutes(time) - start + DAY_MIN) % DAY_MIN
+  const end = offsetOf(wake)
   const entries = Object.entries(points).map(([time, temperature]) => ({ offset: offsetOf(time), temperature })).sort((a, b) => a.offset - b.offset)
-  if (entries.length === 0 || fromMinute > entries[entries.length - 1].offset) return { ...points }
+  if (entries.length === 0 || fromMinute >= end) return { ...points }
   const at = (offset: number) => [...entries].reverse().find(e => e.offset <= offset)?.temperature ?? entries[0].temperature
-  const edges = [fromMinute, toMinute].filter(offset => offset <= entries[entries.length - 1].offset && !entries.some(e => e.offset === offset))
+  const edges = [fromMinute, toMinute].filter(offset => offset < end && !entries.some(e => e.offset === offset))
   const withEdges = [...entries, ...edges.map(offset => ({ offset, temperature: at(offset) }))]
   return Object.fromEntries(withEdges.map(({ offset, temperature }) => [
     clock(start + offset),
-    offset >= fromMinute && offset < toMinute ? Math.max(coolest, Math.min(warmest, temperature + delta)) : temperature,
+    offset >= fromMinute && offset < toMinute && offset < end ? Math.max(coolest, Math.min(warmest, temperature + delta)) : temperature,
   ]))
 }
 
@@ -74,8 +78,9 @@ export function suggestionsFor(side: Side, now = Date.now()): Suggestion[] {
   })
   const latest = settled[settled.length - 1]
   if (!latest || latest.curveId === null) return []
-  // Only nights on the same curve can say anything about it.
-  const nights = settled.filter(n => n.curveId === latest.curveId).slice(-settings.suggestNights)
+  // Only nights on the same curve, since it last changed, can say anything about it.
+  const changedAt = readKey<number>(changedKey(latest.curveId)) ?? 0
+  const nights = settled.filter(n => n.curveId === latest.curveId && n.bedtime >= changedAt).slice(-settings.suggestNights)
   if (nights.length < settings.suggestNeeded) return []
 
   const otherIns = events.filter(e => e.side === other && e.kind === 'in').map(e => e.ts)
@@ -136,11 +141,12 @@ export async function acceptSuggestion(side: Side, id: string, now = Date.now())
   db.transaction((tx) => {
     const curve = tx.select().from(curveTemplates).where(eq(curveTemplates.id, suggestion.curveId)).get()
     if (!curve) throw new Error('That curve was deleted')
-    const points = shiftPart(curve.points, curve.bedtime, suggestion.fromMinute, suggestion.fromMinute + 60, suggestion.delta, COOLEST_F, settings.warmestF)
+    const points = shiftPart(curve.points, curve.bedtime, curve.wake, suggestion.fromMinute, suggestion.fromMinute + 60, suggestion.delta, COOLEST_F, settings.warmestF)
     tx.update(curveTemplates).set({ points, updatedAt: new Date() }).where(eq(curveTemplates.id, curve.id)).run()
     syncCurveRows(tx, { ...curve, points }, { days: curveDays(curve), active: curve.active }, ops)
   })
   await applySchedulerOps(ops)
+  writeKey(changedKey(suggestion.curveId), now)
   markDone(side, id)
   logEvent(side, 'suggestion-accepted', { id, curveId: suggestion.curveId, from: suggestion.from, delta: suggestion.delta })
 }

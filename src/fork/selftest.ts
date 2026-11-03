@@ -2,7 +2,7 @@
  * Self-test nights: two versions of a curve take turns, night by night, on
  * the days either one already runs. The rotation still decides which days
  * those are; this only swaps one for the other, so turning it off puts A back.
- * Today's row is never touched, because its night may already be running.
+ * Today's and yesterday's rows are never touched: either night may still be running.
  */
 import { eq } from 'drizzle-orm'
 import { db } from '@/src/db'
@@ -31,10 +31,11 @@ function localDay(now: number, zone: string, days: number): { number: number, da
   return { number, day: DAYS_OF_WEEK[new Date(number * DAY_MS).getUTCDay()] }
 }
 
-/** The curve each day after today should run: A on even dates, B on odd ones, on days either holds. */
+/** The curve each coming day should run: A on even dates, B on odd ones, on days either holds. */
 export function plannedDays(current: Partial<Record<DayOfWeek, number>>, pair: Pair, now: number, zone: string): Array<{ day: DayOfWeek, curveId: number }> {
   const out: Array<{ day: DayOfWeek, curveId: number }> = []
-  for (let ahead = 1; ahead < 7; ahead++) {
+  // Six days ahead is yesterday's weekday, whose night may still be running.
+  for (let ahead = 1; ahead < 6; ahead++) {
     const { number, day } = localDay(now, zone, ahead)
     const holds = current[day]
     if (holds !== pair.a && holds !== pair.b) continue
@@ -95,11 +96,11 @@ export async function syncSelfTest(side: Side, now = Date.now()): Promise<void> 
   // A changed or finished test first gives its B days back to its A.
   if (saved && (!pair || saved.a !== pair.a || saved.b !== pair.b)) {
     const current = currentDays(side, rows)
-    const today = localDay(now, zone, 0).day
-    const back = DAYS_OF_WEEK.filter(day => day !== today && current[day] === saved.b).map(day => ({ day, curveId: saved.a }))
+    const running = [localDay(now, zone, 0).day, localDay(now, zone, -1).day]
+    const back = DAYS_OF_WEEK.filter(day => !running.includes(day) && current[day] === saved.b).map(day => ({ day, curveId: saved.a }))
     await move(side, back)
-    // Today's row goes back once it's no longer today, so the old test finishes first.
-    if (current[today] === saved.b) return
+    // Those two go back on later ticks, so the old test finishes first.
+    if (running.some(day => current[day] === saved.b)) return
     removeKey(pairKey(side))
     if (!pair) return
   }

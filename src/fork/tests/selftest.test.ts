@@ -73,6 +73,14 @@ describe('self-test nights', () => {
     expect(daysOf(a.id)).toHaveLength(7)
   })
 
+  it('leaves the rows of last night alone after midnight', () => {
+    const all = Object.fromEntries(DAYS_OF_WEEK.map(day => [day, 1]))
+    // 01:00 on Wednesday 11-04 in New York: Tuesday's night may still be running.
+    const plan = plannedDays(all, { a: 1, b: 2 }, Date.UTC(2026, 10, 4, 6, 0), ZONE)
+    expect(plan.map(p => p.day)).not.toContain('tuesday')
+    expect(plan.map(p => p.day)).not.toContain('wednesday')
+  })
+
   it('does nothing without two different curves', async () => {
     const a = curve('A', [...DAYS_OF_WEEK])
     setSideSettings('left', { selfTestOn: true, selfTestCurveA: a.id, selfTestCurveB: a.id })
