@@ -49,7 +49,6 @@ const POD_ROWS: Array<{ key: PodNumber, label: string, step?: number }> = [
   { key: 'ownershipStaleMinutes', label: 'Weekly takeover, minutes' },
   { key: 'timerRefreshHours', label: 'Timer refresh, hours', step: 0.5 },
   { key: 'maxFailedStartups', label: 'Failed startups before stopping' },
-  { key: 'followMinutes', label: 'Moving across: stays this long before following, minutes' },
 ]
 
 const DETECTION = [
@@ -115,9 +114,6 @@ export function ForkSettings({ pod, left, right, names }: {
         ))}
         <SettingRow label="A press restarts a closed side" sub="Leave off until the bench test shows a press on an off side is seen.">
           <Toggle on={pod.pressStartsClosedSide} label="A press restarts a closed side" onChange={pressStartsClosedSide => savePod.mutate({ patch: { pressStartsClosedSide } })} />
-        </SettingRow>
-        <SettingRow label="Temperature follows a lone sleeper who moves across" sub="Their curve moves with them and the side they left closes. Needs Smart start on both sides.">
-          <Toggle on={pod.followOn} label="Temperature follows a lone sleeper who moves across" onChange={followOn => savePod.mutate({ patch: { followOn } })} />
         </SettingRow>
         <SettingRow label="Bed is empty now" sub="Use after changing bedding, with nobody on the bed.">
           <Button disabled={markEmpty.isPending} onClick={() => markEmpty.mutate()}>Mark empty</Button>

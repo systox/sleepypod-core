@@ -54,9 +54,6 @@ export const podSettingsSchema = z.object({
   ownershipStaleMinutes: z.number().min(1).max(30),
   timerRefreshHours: z.number().min(1).max(7.5),
   maxFailedStartups: z.number().int().min(1).max(20),
-  /** A lone sleeper who moves across and stays takes their curve with them. */
-  followOn: z.boolean(),
-  followMinutes: z.number().min(5).max(120),
   noiseMode: z.enum(['off', 'on', 'in-bed']),
   noiseSide: z.enum(['left', 'right', 'either']),
   noiseVolume: z.number().int().min(0).max(100),
@@ -115,8 +112,6 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   ownershipStaleMinutes: 2,
   timerRefreshHours: 6,
   maxFailedStartups: 3,
-  followOn: false,
-  followMinutes: 20,
   noiseMode: 'off',
   noiseSide: 'either',
   noiseVolume: 20,

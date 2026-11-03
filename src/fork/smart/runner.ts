@@ -9,15 +9,14 @@ import { powerSchedules, sideSettings, temperatureSchedules } from '@/src/db/sch
 import type { Side } from '@/src/hardware/types'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { presenceOf, sensorsFresh, takeEntry, twoBodies } from '../presence/collector'
-import { runtime, takePersonPower } from '../runtime'
+import { takePersonPower } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
 import { deviceTimezone } from '../clock'
-import { listEvents, logEvent, readKey, writeKey } from '../store'
+import { logEvent, readKey, writeKey } from '../store'
 import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow } from './curves'
-import { command, follow, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
+import { command, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
 
 const HOUR = 3_600_000
-const MINUTE = 60_000
 
 const globalRunner = globalThis as typeof globalThis & { __sp_forkLastTick?: Partial<Record<Side, number>> }
 const lastTick = globalRunner.__sp_forkLastTick ??= {}
@@ -133,40 +132,6 @@ export async function tickSide(side: Side, now = Date.now()): Promise<void> {
 export function noteSwitchedOn(side: Side, now = Date.now()): void {
   const { window } = windowsOf(side, now)
   if (window) writeKey(key(side), { ...runStateOf(side), windowFor: window.curve.bedtime })
-}
-
-const isRunning = (state: RunState) => state.phase === 'running' || state.phase === 'reading'
-const isAway = (side: Side) => db.select({ away: sideSettings.awayMode }).from(sideSettings).where(eq(sideSettings.side, side)).get()?.away ?? false
-
-/** Whether the side's latest entry came from someone moving across, not a second person getting in. */
-function movedAcrossAt(side: Side, since: number): boolean {
-  const entry = listEvents(since - 2 * MINUTE, since + 2 * MINUTE, ['in']).filter(e => e.side === side).pop()
-  return Boolean(entry?.detail && (JSON.parse(entry.detail) as { movedAcross?: boolean }).movedAcross)
-}
-
-/**
- * The move-across exception: one person alone in bed who moved to the other
- * side and stayed. It needs Smart start on both sides and detection live.
- */
-export async function checkFollow(now = Date.now()): Promise<void> {
-  const pod = getPodSettings()
-  if (!pod.followOn || !runtime.detectionLive || !sensorsFresh(now)) return
-  for (const [from, to] of [['left', 'right'], ['right', 'left']] as const) {
-    if (!runtime.smartSides[from] || !runtime.smartSides[to]) continue
-    const source = runStateOf(from)
-    const target = runStateOf(to)
-    // A curve still waiting for bedtime has nothing to carry across yet.
-    if (source.phase !== 'running' || isRunning(target) || source.points === null || isAway(to)) continue
-    const here = presenceOf(to)
-    if (presenceOf(from).occupied !== false || here.occupied !== true || here.since === null) continue
-    if (now - here.since < pod.followMinutes * MINUTE || !movedAcrossAt(to, here.since)) continue
-    const decision = follow(target, source, {
-      now, settings: getSideSettings(to), sourceSettings: getSideSettings(from), sourceNextWindow: windowsOf(from, now).next,
-    })
-    await apply(from, decision.source, now)
-    await apply(to, decision.target, now)
-    return
-  }
 }
 
 export async function runCommand(side: Side, name: Command, now = Date.now()): Promise<RunState> {

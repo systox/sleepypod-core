@@ -11,7 +11,7 @@ import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
 import { syncSelfTest } from './selftest'
-import { checkFollow, tickSide } from './smart/runner'
+import { tickSide } from './smart/runner'
 import { closeStore, dailyHousekeeping, readKey, storeProblem, writeKey } from './store'
 import { clearSurfaces, stepSurface } from './surface'
 import { syncRotation } from './weeks'
@@ -63,7 +63,6 @@ function warnFailed(what: string) {
 const smartTick = async (): Promise<void> => {
   refreshFlags()
   if (!runtime.detectionLive || runtime.disabled) return
-  await checkFollow().catch(warnFailed('move-across check'))
   for (const side of SIDES) {
     // A side that keeps failing must not hold up the other one.
     await tickSide(side).catch((error) => {
