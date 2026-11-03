@@ -1,7 +1,8 @@
 'use client'
 
 import { Volume2 } from 'lucide-react'
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
+import { cn } from '@/lib/utils'
 import { Button, Card, InlineError, SectionLabel, SelectValue, SettingRow, StatusDot, Toggle } from '@/src/components/ds'
 import type { ForkPodSettings } from '@/src/fork/settings'
 import type { Side } from '@/src/hardware/types'
@@ -51,8 +52,42 @@ export function noiseLine(noise: NoiseView, volume: number, clock: (at: number) 
 }
 
 /**
- * One button for the Temp screen: white noise on or off now. The 3D stage
- * passes its own pill look; the card view uses the standard button.
+ * The white noise volume as a slider. It saves once the slider is let go, and
+ * a playing session picks the new volume up within a few seconds.
+ */
+function NoiseVolume({ volume, className, style }: { volume: number, className?: string, style?: CSSProperties }) {
+  const refresh = useForkRefresh()
+  const save = trpc.fork.setPodSettings.useMutation({ onSuccess: refresh })
+  const [draft, setDraft] = useState<number | null>(null)
+  const shown = draft ?? volume
+  const commit = () => {
+    if (draft !== null && draft !== volume) save.mutate({ patch: { noiseVolume: draft } }, { onSettled: () => setDraft(null) })
+    else setDraft(null)
+  }
+  return (
+    <label className={cn('inline-flex items-center gap-2', className)} style={style}>
+      <span className="font-mono text-xs tabular-nums">{`Vol ${shown}`}</span>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={shown}
+        aria-label="White noise volume"
+        className="w-28 accent-current"
+        onChange={event => setDraft(Number(event.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+    </label>
+  )
+}
+
+/**
+ * White noise on or off now for the Temp screen, with its volume while it
+ * plays. The 3D stage passes its own pill look; the card view uses the
+ * standard button.
  */
 export function NoiseQuickToggle({ className, style }: { className?: string, style?: CSSProperties }) {
   const { data } = useForkOverview()
@@ -61,18 +96,25 @@ export function NoiseQuickToggle({ className, style }: { className?: string, sty
   const on = data.noise.on
   const label = on ? 'Stop white noise' : 'White noise'
   const toggle = () => set.mutate({ on: !on })
+  const volume = on && <NoiseVolume volume={data.pod.noiseVolume} className={className} style={style} />
   if (className) {
     return (
-      <button type="button" className={className} style={style} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
-        <Volume2 size={14} />
-        {label}
-      </button>
+      <>
+        <button type="button" className={className} style={style} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
+          <Volume2 size={14} />
+          {label}
+        </button>
+        {volume}
+      </>
     )
   }
   return (
-    <Button size="sm" icon={Volume2} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
-      {label}
-    </Button>
+    <>
+      <Button size="sm" icon={Volume2} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
+        {label}
+      </Button>
+      {volume}
+    </>
   )
 }
 
