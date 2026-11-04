@@ -74,8 +74,23 @@ describe('the white noise section of the Temp screen', () => {
     h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({ on: false, playing: false }) }
     render(<NoiseSection />)
     expect(screen.getByRole('region', { name: 'White noise' })).toBeTruthy()
-    expect(screen.getByText('Start when the curve starts')).toBeTruthy()
+    expect(screen.getByText('Start white noise')).toBeTruthy()
     expect(screen.getByText('Stops once everyone is out of bed for, minutes')).toBeTruthy()
-    expect(screen.getByText('Fades out over, seconds')).toBeTruthy()
+    expect(screen.getByText('Fades in and out over, seconds')).toBeTruthy()
+    // Off by default: who and how long to wait only matter once it starts by itself.
+    expect(screen.queryByText('Whose curve')).toBeNull()
+    expect(screen.queryByText('Waits for someone to get in, minutes')).toBeNull()
+  })
+
+  it('asks how long to wait only when it starts at the curve\'s start time', () => {
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart' }, noise: noise({ on: false, playing: false }) }
+    const { unmount } = render(<NoiseSection />)
+    expect(screen.getByText('Whose curve')).toBeTruthy()
+    expect(screen.queryByText('Waits for someone to get in, minutes')).toBeNull()
+    expect(screen.getByText(/^Starts about 5 minutes after someone gets into bed/)).toBeTruthy()
+    unmount()
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'clock' }, noise: noise({ on: false, playing: false }) }
+    render(<NoiseSection />)
+    expect(screen.getByText('Waits for someone to get in, minutes')).toBeTruthy()
   })
 })

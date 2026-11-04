@@ -58,8 +58,12 @@ export const podSettingsSchema = z.object({
   resumeAfterPowerCut: z.boolean(),
   /** An empty side that follows the home sleeper's schedule takes their Smart start too. */
   followSmartStart: z.boolean(),
-  /** White noise starts at the bedtime of this side's curve, or whichever comes first. */
-  noiseAuto: z.boolean(),
+  /**
+   * White noise starts by itself: never, at the start time of noiseSide's
+   * curve, or when Smart start begins that sleeper's curve (the start time
+   * for a sleeper without Smart start).
+   */
+  noiseStart: z.enum(['off', 'clock', 'smart']),
   noiseSide: z.enum(['left', 'right', 'either']),
   noiseVolume: z.number().int().min(0).max(100),
   noiseColor: z.enum(['white', 'pink', 'brown']),
@@ -68,7 +72,7 @@ export const podSettingsSchema = z.object({
   /** It stops once the bed has been empty this long. */
   noiseEmptyMinutes: z.number().min(1).max(120),
   noiseMaxHours: z.number().min(1).max(16),
-  /** When a session ends, the sound fades out over this many seconds. 0 stops it at once. */
+  /** A session that starts by itself fades in, and every session fades out, over this many seconds. 0 means at once. */
   noiseFadeSeconds: z.number().int().min(0).max(300),
   middleSingle: z.enum(['none', 'noise']),
   middleDouble: z.enum(['none', 'noise']),
@@ -130,7 +134,7 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   maxFailedStartups: 3,
   resumeAfterPowerCut: false,
   followSmartStart: false,
-  noiseAuto: false,
+  noiseStart: 'off',
   noiseSide: 'either',
   noiseVolume: 20,
   noiseColor: 'pink',

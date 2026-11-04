@@ -1,10 +1,13 @@
 /**
  * White noise from the base's speaker, made on the Pod with no audio files:
  * ffmpeg generates it and paplay plays it. A session starts from the app, the
- * web page, a middle-button press, or at bedtime when that's switched on. It
- * ends when the bed has been empty a while, at its longest length, or when
- * someone stops it. A volume change reaches the playing stream directly, so
- * the sound doesn't break.
+ * web page, a middle-button press, or by itself as noiseStart says: at a
+ * curve's start time, or when Smart start begins a sleeper's curve. It ends
+ * when the bed has been empty a while, at its longest length, or when someone
+ * stops it. One that ended on an empty bed starts again when someone gets back
+ * in while a curve runs, unless someone stopped the noise by hand that night.
+ * A session that starts by itself fades in. A volume change reaches the
+ * playing stream directly, so the sound doesn't break.
  */
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -12,9 +15,9 @@ import type { Side } from '@/src/hardware/types'
 import { activeSleeperSides } from '@/src/lib/singleSleeper'
 import { presenceOf, sensorsFresh } from './presence/collector'
 import type { ForkPodSettings } from './settings'
-import { getPodSettings } from './settings'
+import { getPodSettings, getSideSettings } from './settings'
 import { bedState } from './smart/following'
-import { windowsOf } from './smart/runner'
+import { runStateOf, windowsOf } from './smart/runner'
 import { logEvent, readKey, removeKey, writeKey } from './store'
 
 const MINUTE = 60_000
@@ -36,8 +39,21 @@ const SAME_NIGHT_MS = 12 * 60 * MINUTE
 const SETTLED_MS = 10_000
 /** A fade lowers the volume this often. */
 const FADE_STEP_MS = 1_000
+/** A Smart start run older than this, say when the service started mid-night, doesn't start noise. */
+const RUN_LATE_MS = 15 * MINUTE
+/** Smart start runs that already started noise, as side:startedAt. */
+const RUNS_KEY = 'noise-runs-done'
+/** When someone last stopped the noise by hand: nothing starts it by itself again that night. */
+const HAND_STOP_KEY = 'noise-hand-stop'
+/** Why and when the last session ended, so one that ended on an empty bed can start again. */
+const LAST_STOP_KEY = 'noise-last-stop'
+/** How many seconds a new player waits for its stream to appear before fading in. */
+const STREAM_WAIT_STEPS = 5
 
-export type NoiseReason = 'app' | 'button' | 'bedtime'
+/** By hand from the app or the middle button; or by itself at a curve's start time, with Smart start, or on getting back in. */
+export type NoiseReason = 'app' | 'button' | 'bedtime' | 'smart-start' | 'return'
+
+const BY_ITSELF: NoiseReason[] = ['bedtime', 'smart-start', 'return']
 
 interface NoiseSession {
   reason: NoiseReason
@@ -59,11 +75,13 @@ interface NoiseState {
   childStartedAt: number
   /** A player whose session has ended, fading out before it is stopped. */
   fading: ChildProcess | null
+  /** A new player fading in: its volume belongs to the fade until it's done. */
+  rising: ChildProcess | null
 }
 
 const globalNoise = globalThis as typeof globalThis & { __sp_forkNoise?: NoiseState }
 const state: NoiseState = globalNoise.__sp_forkNoise ??= {
-  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0, fading: null,
+  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0, fading: null, rising: null,
 }
 
 type NoiseSound = Pick<ForkPodSettings, 'noiseColor' | 'noiseVolume'>
@@ -157,14 +175,20 @@ function loadSession(now = Date.now()): NoiseSession | null {
   return state.session
 }
 
-function saveSession(session: NoiseSession | null, why: string): void {
+function saveSession(session: NoiseSession | null, why: string, now = Date.now()): void {
   const before = loadSession()
   state.session = session
   if (session) writeKey(SESSION_KEY, session)
   else removeKey(SESSION_KEY)
-  if (session && !before) logEvent(null, 'noise-start', { reason: session.reason })
-  // The bedtime check below uses this too, so a session saved here is also the one it sees.
-  if (!session && before) logEvent(null, 'noise-stop', { why })
+  if (session && !before) {
+    logEvent(null, 'noise-start', { reason: session.reason })
+    removeKey(LAST_STOP_KEY)
+  }
+  // The start checks use this too, so a session saved here is also the one they see.
+  if (!session && before) {
+    logEvent(null, 'noise-stop', { why })
+    writeKey(LAST_STOP_KEY, { why, at: now })
+  }
 }
 
 function bedNow(now: number): { empty: boolean | null, any: boolean } {
@@ -178,11 +202,12 @@ export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): vo
   if (!on) {
     // A stop sent while it is already fading out cuts the fade short.
     if (!loadSession()) stopNoise()
-    saveSession(null, reason)
+    saveSession(null, reason, now)
+    if (!BY_ITSELF.includes(reason)) writeKey(HAND_STOP_KEY, now)
   }
   else if (!loadSession()) {
     state.occupiedAt = bedNow(now).any ? now : null
-    saveSession({ reason, startedAt: now }, reason)
+    saveSession({ reason, startedAt: now }, reason, now)
   }
   syncNoise(now)
 }
@@ -206,6 +231,7 @@ function killPlayer(child: ChildProcess | null): void {
 export function stopNoise(): void {
   const child = state.child
   state.child = null
+  state.rising = null
   state.key = null
   state.volume = null
   killPlayer(child)
@@ -223,6 +249,7 @@ function fadeOutNoise(seconds: number): void {
   const child = state.child
   const from = state.volume ?? 0
   state.child = null
+  state.rising = null
   state.key = null
   state.volume = null
   if (!child) return
@@ -248,6 +275,47 @@ function fadeOutNoise(seconds: number): void {
       if (state.fading === child) {
         state.fading = null
         killPlayer(child)
+      }
+    }
+  })()
+}
+
+/**
+ * Raise a new player from silence to the set volume over the set seconds. A
+ * volume change during the fade is picked up by the next step. If the stream
+ * can't be reached, the next check sets the volume at once instead.
+ */
+function fadeInNoise(seconds: number): void {
+  const child = state.child
+  if (!child) return
+  state.rising = child
+  void (async () => {
+    try {
+      let streams: string[] = []
+      for (let tries = 0; tries < STREAM_WAIT_STEPS && streams.length === 0 && state.rising === child; tries++) {
+        await sleep(FADE_STEP_MS)
+        const { stdout } = await execFileAsync('pactl', ['list', 'sink-inputs'], { timeout: PACTL_TIMEOUT_MS })
+        streams = playerStreams(stdout)
+      }
+      if (state.rising !== child) return
+      if (streams.length === 0) throw new Error('the player has no stream to fade in')
+      const steps = Math.max(1, Math.round(seconds * 1000 / FADE_STEP_MS))
+      for (let step = 1; step <= steps && state.rising === child; step++) {
+        await sleep(FADE_STEP_MS)
+        if (state.rising !== child) break
+        const volume = getPodSettings().noiseVolume * step / steps
+        for (const stream of streams) await execFileAsync('pactl', ['set-sink-input-volume', stream, String(paVolume(volume))], { timeout: PACTL_TIMEOUT_MS })
+        state.volume = volume
+      }
+    }
+    catch (error) {
+      console.warn('[fork] white noise fade-in failed, playing at the set volume:', error instanceof Error ? error.message : error)
+    }
+    finally {
+      if (state.rising === child) {
+        state.rising = null
+        // Sets the volume if the fade didn't reach it, or the setting changed at its end.
+        syncNoise()
       }
     }
   })()
@@ -282,35 +350,99 @@ function start(command: string, key: string, volume: number): void {
   state.childStartedAt = Date.now()
 }
 
-/** Start at a bedtime that has just passed, once per bedtime. A broken curve can't stop the rest. */
-function startAtBedtime(pod: ForkPodSettings, now: number): void {
+/** Whether Smart start runs this sleeper's curve, rather than the clock. */
+function smartRuns(side: Side, pod: ForkPodSettings): boolean {
+  return pod.detection === 'live' && getSideSettings(side).smartStart
+}
+
+/** When the Smart start run under way on this side began, or null. A Reading mode hold counts. */
+function smartRunStart(side: Side): number | null {
+  const run = runStateOf(side)
+  return (run.phase === 'reading' || run.phase === 'running') && run.startedAt !== null ? run.startedAt : null
+}
+
+/** Whether this side's curve is running now: its Smart start run, or its curve's hours by the clock. */
+function curveRunning(side: Side, pod: ForkPodSettings, now: number): boolean {
+  if (smartRuns(side, pod)) return smartRunStart(side) !== null
+  const curve = windowsOf(side, now).window?.curve
+  if (!curve || curve.points.length === 0) return false
+  return now >= curve.bedtime && now < curve.bedtime + curve.points[curve.points.length - 1].offset * MINUTE
+}
+
+/**
+ * Someone stopped the noise by hand since tonight's earliest window opened,
+ * so nothing starts it by itself until the next night. A stop earlier in the
+ * evening doesn't count.
+ */
+function handStoppedTonight(sides: Side[], now: number): boolean {
+  const stoppedAt = readKey<number>(HAND_STOP_KEY)
+  if (stoppedAt === null) return false
+  const opens = sides.map(side => windowsOf(side, now).window?.windowStart).filter((at): at is number => typeof at === 'number')
+  return opens.length > 0 && stoppedAt >= Math.min(...opens)
+}
+
+function startByItself(reason: NoiseReason, someoneInBed: boolean, now: number): void {
+  if (loadSession(now)) return
+  state.occupiedAt = someoneInBed ? now : null
+  saveSession({ reason, startedAt: now }, reason, now)
+}
+
+/** Start at a curve start time that has just passed, once per start time and once a night. */
+function startAtBedtime(sides: Side[], now: number): void {
+  const due = dueBedtimes(sides, now)
+  const done = readKey<number[]>(BEDTIMES_KEY) ?? []
+  const fresh = due.filter(at => !done.includes(at))
+  if (fresh.length === 0) return
+  writeKey(BEDTIMES_KEY, [...done, ...fresh].slice(-8))
+  if (fresh.every(at => done.some(d => Math.abs(at - d) < SAME_NIGHT_MS))) return
+  startByItself('bedtime', false, now)
+}
+
+/** Start as Smart start begins a sleeper's curve, once per run. Someone is in bed by then, so there's no wait. */
+function startWithSmartStart(sides: Side[], now: number): void {
+  const runs = sides.flatMap((side) => {
+    const at = smartRunStart(side)
+    return at !== null && now - at < RUN_LATE_MS ? [`${side}:${at}`] : []
+  })
+  const done = readKey<string[]>(RUNS_KEY) ?? []
+  const fresh = runs.filter(run => !done.includes(run))
+  if (fresh.length === 0) return
+  writeKey(RUNS_KEY, [...done, ...fresh].slice(-8))
+  startByItself('smart-start', true, now)
+}
+
+/** A session that ended on an empty bed starts again when someone gets back in while a curve still runs. */
+function startOnReturn(sides: Side[], pod: ForkPodSettings, now: number): void {
+  const last = readKey<{ why: string, at: number }>(LAST_STOP_KEY)
+  if (last?.why !== 'bed empty' || !bedNow(now).any) return
+  if (sides.some(side => curveRunning(side, pod, now))) startByItself('return', true, now)
+}
+
+/** Start the noise by itself as noiseStart says. A broken curve can't stop the rest. */
+function startNoiseByItself(pod: ForkPodSettings, now: number): void {
   try {
-    const due = dueBedtimes(noiseSides(pod, activeSleeperSides(bedState())), now)
-    const done = readKey<number[]>(BEDTIMES_KEY) ?? []
-    const fresh = due.filter(at => !done.includes(at))
-    if (fresh.length === 0) return
-    writeKey(BEDTIMES_KEY, [...done, ...fresh].slice(-8))
-    if (fresh.every(at => done.some(d => Math.abs(at - d) < SAME_NIGHT_MS))) return
-    if (!loadSession(now)) {
-      state.occupiedAt = null
-      saveSession({ reason: 'bedtime', startedAt: now }, 'bedtime')
-    }
+    const sides = noiseSides(pod, activeSleeperSides(bedState()))
+    if (sides.length === 0 || handStoppedTonight(sides, now)) return
+    // A sleeper Smart start doesn't run starts the noise at their curve's start time.
+    startAtBedtime(pod.noiseStart === 'smart' ? sides.filter(side => !smartRuns(side, pod)) : sides, now)
+    if (pod.noiseStart === 'smart') startWithSmartStart(sides.filter(side => smartRuns(side, pod)), now)
+    startOnReturn(sides, pod, now)
   }
   catch (error) {
-    console.warn('[fork] white noise bedtime check failed:', error instanceof Error ? error.message : error)
+    console.warn('[fork] white noise start check failed:', error instanceof Error ? error.message : error)
   }
 }
 
-/** One check: start at bedtime, end on an empty bed, and keep the player matching the session. */
+/** One check: start by itself, end on an empty bed, and keep the player matching the session. */
 export function syncNoise(now = Date.now()): void {
   const pod = getPodSettings()
-  if (pod.noiseAuto) startAtBedtime(pod, now)
+  if (pod.noiseStart !== 'off') startNoiseByItself(pod, now)
   const session = loadSession(now)
   if (session) {
     const bed = bedNow(now)
     if (bed.any) state.occupiedAt = now
     const why = endReason(session, pod, now, { empty: bed.empty, occupiedAt: state.occupiedAt })
-    if (why) saveSession(null, why)
+    if (why) saveSession(null, why, now)
   }
   if (!loadSession() || pod.noiseVolume === 0) {
     state.failedKey = null
@@ -322,13 +454,17 @@ export function syncNoise(now = Date.now()): void {
   }
   const key = pod.noiseColor
   if (state.child && state.key === key) {
-    if (state.volume !== pod.noiseVolume) changeVolume(pod.noiseVolume)
+    if (state.volume !== pod.noiseVolume && state.rising !== state.child) changeVolume(pod.noiseVolume)
     if (state.problem && now - state.childStartedAt >= SETTLED_MS) state.problem = null
     return
   }
   if (state.failedKey === key && now - state.failedAt < RETRY_MS) return
   stopNoise()
-  start(noiseCommand(pod), key, pod.noiseVolume)
+  // A session that has just started by itself fades in; one started by hand plays at once.
+  const playing = loadSession() as NoiseSession
+  const fadeIn = BY_ITSELF.includes(playing.reason) && now - playing.startedAt < MINUTE && pod.noiseFadeSeconds > 0
+  start(noiseCommand({ ...pod, noiseVolume: fadeIn ? 0 : pod.noiseVolume }), key, fadeIn ? 0 : pod.noiseVolume)
+  if (fadeIn) fadeInNoise(pod.noiseFadeSeconds)
 }
 
 export function noiseStatus(): { on: boolean, playing: boolean, reason: NoiseReason | null, since: number | null, problem: string | null } {
@@ -356,5 +492,5 @@ export function stopLeftoverPlayers(): void {
 /** Clears a stored session, so an old one can't restart noise after a long outage. */
 export function clearStaleNoise(now = Date.now()): void {
   const session = loadSession()
-  if (session && now - session.startedAt >= getPodSettings().noiseMaxHours * 60 * MINUTE) saveSession(null, 'longest length')
+  if (session && now - session.startedAt >= getPodSettings().noiseMaxHours * 60 * MINUTE) saveSession(null, 'longest length', now)
 }
