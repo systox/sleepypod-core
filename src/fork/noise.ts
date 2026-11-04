@@ -9,9 +9,11 @@
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Side } from '@/src/hardware/types'
+import { activeSleeperSides } from '@/src/lib/singleSleeper'
 import { presenceOf, sensorsFresh } from './presence/collector'
 import type { ForkPodSettings } from './settings'
 import { getPodSettings } from './settings'
+import { bedState } from './smart/following'
 import { windowsOf } from './smart/runner'
 import { logEvent, readKey, removeKey, writeKey } from './store'
 
@@ -131,9 +133,18 @@ export function endReason(session: NoiseSession, timing: NoiseTiming, now: numbe
   return now - from >= timing.noiseEmptyMinutes * MINUTE ? 'bed empty' : null
 }
 
-/** Bedtimes that have just passed: the chosen side's curve, or both sides' for whoever goes first. */
-export function dueBedtimes(pod: Pick<ForkPodSettings, 'noiseSide'>, now: number, bedtimeOf: (side: Side) => number | null = side => windowsOf(side, now).window?.curve.bedtime ?? null): number[] {
-  const sides: Side[] = pod.noiseSide === 'either' ? ['left', 'right'] : [pod.noiseSide]
+/**
+ * The sleepers whose curves can start noise: the chosen side, or both for
+ * whoever goes first, leaving out anyone away and the unused side of a bed
+ * set up for one.
+ */
+export function noiseSides(pod: Pick<ForkPodSettings, 'noiseSide'>, home: Side[]): Side[] {
+  const chosen: Side[] = pod.noiseSide === 'either' ? ['left', 'right'] : [pod.noiseSide]
+  return chosen.filter(side => home.includes(side))
+}
+
+/** Bedtimes that have just passed on these sides. */
+export function dueBedtimes(sides: Side[], now: number, bedtimeOf: (side: Side) => number | null = side => windowsOf(side, now).window?.curve.bedtime ?? null): number[] {
   return sides.map(bedtimeOf).filter((at): at is number => at !== null && at <= now && now - at < BEDTIME_LATE_MS)
 }
 
@@ -274,7 +285,7 @@ function start(command: string, key: string, volume: number): void {
 /** Start at a bedtime that has just passed, once per bedtime. A broken curve can't stop the rest. */
 function startAtBedtime(pod: ForkPodSettings, now: number): void {
   try {
-    const due = dueBedtimes(pod, now)
+    const due = dueBedtimes(noiseSides(pod, activeSleeperSides(bedState())), now)
     const done = readKey<number[]>(BEDTIMES_KEY) ?? []
     const fresh = due.filter(at => !done.includes(at))
     if (fresh.length === 0) return

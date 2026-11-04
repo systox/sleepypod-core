@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   execFile: vi.fn(),
   occupied: { left: false as boolean | null, right: false as boolean | null },
   bedtimes: { left: null as number | null, right: null as number | null },
+  away: { left: false, right: false },
 }))
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -16,6 +17,9 @@ vi.mock('@/src/temperature/instance', () => ({ getTemperatureController: () => (
 vi.mock('../presence/collector', () => ({
   presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: null }),
   sensorsFresh: () => true,
+}))
+vi.mock('../smart/following', () => ({
+  bedState: () => ({ bedMode: 'two', left: { awayMode: h.away.left }, right: { awayMode: h.away.right } }),
 }))
 vi.mock('../smart/runner', () => ({
   windowsOf: (side: 'left' | 'right') => ({ window: h.bedtimes[side] === null ? null : { curve: { bedtime: h.bedtimes[side] } }, next: null }),
@@ -50,6 +54,7 @@ beforeEach(() => {
   })
   h.occupied = { left: false, right: false }
   h.bedtimes = { left: null, right: null }
+  h.away = { left: false, right: false }
   runtime.running = true
 })
 afterEach(() => {
@@ -87,6 +92,17 @@ describe('a white noise session', () => {
     h.bedtimes = { left: null, right: NOW + 20 * MIN }
     syncNoise(NOW + 30 * MIN)
     expect(noiseStatus().on).toBe(false)
+  })
+
+  it('skips an away sleeper\'s bedtime when either side can start it', () => {
+    setPodSettings({ noiseAuto: true, noiseSide: 'either' })
+    h.away.left = true
+    h.bedtimes = { left: NOW - MIN, right: NOW + 30 * MIN }
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+    h.bedtimes = { left: NOW - 31 * MIN, right: NOW - MIN }
+    syncNoise(NOW + 30 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
   })
 
   it('gives an empty bed its full grace after a restart', () => {

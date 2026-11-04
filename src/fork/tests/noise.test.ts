@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dueBedtimes, endReason, noiseCommand, playerStreams } from '../noise'
+import { dueBedtimes, endReason, noiseCommand, noiseSides, playerStreams } from '../noise'
 import { actionFor, gestureOf } from '../middleButton'
 
 const MIN = 60_000
@@ -31,14 +31,19 @@ describe('the bedtime that starts it', () => {
   const bedtimes = { left: NOW - 5 * MIN, right: NOW - 20 * MIN }
 
   it('uses the chosen side, or both sides for whoever goes first', () => {
-    expect(dueBedtimes({ noiseSide: 'left' }, NOW, side => bedtimes[side])).toEqual([bedtimes.left])
-    expect(dueBedtimes({ noiseSide: 'either' }, NOW, side => bedtimes[side])).toEqual([bedtimes.left, bedtimes.right])
+    expect(dueBedtimes(noiseSides({ noiseSide: 'left' }, ['left', 'right']), NOW, side => bedtimes[side])).toEqual([bedtimes.left])
+    expect(dueBedtimes(noiseSides({ noiseSide: 'either' }, ['left', 'right']), NOW, side => bedtimes[side])).toEqual([bedtimes.left, bedtimes.right])
+  })
+
+  it('leaves out a sleeper who is away', () => {
+    expect(noiseSides({ noiseSide: 'either' }, ['right'])).toEqual(['right'])
+    expect(noiseSides({ noiseSide: 'left' }, ['right'])).toEqual([])
   })
 
   it('ignores a bedtime still to come or long missed', () => {
-    expect(dueBedtimes({ noiseSide: 'left' }, NOW, () => NOW + MIN)).toEqual([])
-    expect(dueBedtimes({ noiseSide: 'left' }, NOW, () => NOW - 2 * 60 * MIN)).toEqual([])
-    expect(dueBedtimes({ noiseSide: 'right' }, NOW, () => null)).toEqual([])
+    expect(dueBedtimes(['left'], NOW, () => NOW + MIN)).toEqual([])
+    expect(dueBedtimes(['left'], NOW, () => NOW - 2 * 60 * MIN)).toEqual([])
+    expect(dueBedtimes(['right'], NOW, () => null)).toEqual([])
   })
 })
 
