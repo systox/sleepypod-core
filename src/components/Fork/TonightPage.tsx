@@ -26,7 +26,7 @@ type View = typeof VIEWS[number]['value']
 /** How long the Tonight page says a side came back on after a restart. */
 const RESUMED_SHOWN_MS = 12 * 3_600_000
 
-function SideCard({ side, name, view, now }: { side: Side, name: string, view: SideView, now: number }) {
+function SideCard({ side, name, otherName, view, now }: { side: Side, name: string, otherName: string, view: SideView, now: number }) {
   const refresh = useForkRefresh()
   const timeFormat = useTimeFormat()
   const weeks = trpc.fork.listWeeks.useQuery()
@@ -51,6 +51,7 @@ function SideCard({ side, name, view, now }: { side: Side, name: string, view: S
         ? <span className="text-[13px] text-fg-2">{`Easing back to ${formatSetpointF(view.fade.curve, unit)} by ${clock(view.fade.by)}`}</span>
         : step && <span className="text-[13px] text-fg-2">{`Next: ${formatSetpointF(step.temperature, unit)} at ${clock(step.at)}`}</span>}
       {run.note && <span className="text-[13px] text-fg-2">{run.note}</span>}
+      {view.following && <span className="text-[13px] text-fg-2">{`Away: this side follows ${otherName}'s curve and Smart start.`}</span>}
       {view.resumedAt !== null && now - view.resumedAt < RESUMED_SHOWN_MS && (
         <span className="text-[13px] text-fg-2">{`Turned back on at ${clock(view.resumedAt)}: it was on when the Pod lost power or restarted.`}</span>
       )}
@@ -61,7 +62,7 @@ function SideCard({ side, name, view, now }: { side: Side, name: string, view: S
         </span>
       )}
       <TonightChart side={side} view={view} now={now} />
-      {view.settings.smartStart && (
+      {view.settings.smartStart && !view.following && (
         <div className="flex flex-wrap gap-2">
           {!running && !inGap && <Button disabled={command.isPending} onClick={() => command.mutate({ side, command: 'start-new' })}>Start</Button>}
           {!running && inGap && (
@@ -110,8 +111,8 @@ export function TonightPage() {
       {data && view === 'tonight' && (
         <>
           <div className="grid gap-3.5 min-[900px]:grid-cols-2 min-[900px]:gap-3">
-            <SideCard side="left" name={sideNames.left} view={data.left} now={data.now} />
-            <SideCard side="right" name={sideNames.right} view={data.right} now={data.now} />
+            <SideCard side="left" name={sideNames.left} otherName={sideNames.right} view={data.left} now={data.now} />
+            <SideCard side="right" name={sideNames.right} otherName={sideNames.left} view={data.right} now={data.now} />
           </div>
           <SectionLabel className="mt-1">Detection</SectionLabel>
           <div className="flex items-center gap-2 font-mono text-xs text-fg-2">

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { Card, SettingRow, Toggle } from '@/src/components/ds'
 import { langFromPath } from '@/src/components/AppShell/navItems'
 import type { Side } from '@/src/hardware/types'
+import { useSideNames } from '@/src/hooks/useSideNames'
 import { useTemperatureUnit } from '@/src/hooks/useTemperatureUnit'
 import { formatClock } from '@/src/lib/timeFormat'
 import { formatSetpointF } from '@/src/lib/tempUtils'
@@ -19,6 +20,7 @@ export function SwitchCard({ side }: { side: Side }) {
   const timeFormat = useTimeFormat()
   const { unit } = useTemperatureUnit()
   const lang = langFromPath(usePathname())
+  const { leftName, rightName } = useSideNames()
   const save = trpc.fork.setSideSettings.useMutation({ onSuccess: refresh })
   if (!data) return null
 
@@ -33,8 +35,13 @@ export function SwitchCard({ side }: { side: Side }) {
   const needsSmart = 'Only works with Smart start on.'
   const set = (patch: Partial<typeof settings>) => save.mutate({ side, patch })
 
+  const homeName = view.following === 'left' ? leftName : rightName
+
   return (
     <Card className="gap-2.5">
+      {view.following && (
+        <span className="text-[13px] text-fg-2">{`Away: this side follows ${homeName}'s curve and Smart start. Its own settings below apply again once it's back.`}</span>
+      )}
       <SettingRow
         divider={false}
         label="Smart start"

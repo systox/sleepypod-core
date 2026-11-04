@@ -14,6 +14,7 @@ import { getPodSettings, getSideSettings } from '../settings'
 import { deviceTimezone } from '../clock'
 import { logEvent, readKey, writeKey } from '../store'
 import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow } from './curves'
+import { followingOf } from './following'
 import { command, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
 
 const HOUR = 3_600_000
@@ -111,6 +112,11 @@ async function apply(side: Side, decision: Decision, now: number): Promise<RunSt
   return state
 }
 
+/** A side that starts following the home sleeper sets its own run aside, and starts afresh once its sleeper is back. */
+export function setRunAside(side: Side): void {
+  writeKey(key(side), INITIAL_RUN)
+}
+
 export async function tickSide(side: Side, now = Date.now()): Promise<void> {
   let state = runStateOf(side)
   if (state.offOwed) {
@@ -135,6 +141,8 @@ export function noteSwitchedOn(side: Side, now = Date.now()): void {
 }
 
 export async function runCommand(side: Side, name: Command, now = Date.now()): Promise<RunState> {
+  const leader = followingOf(side)
+  if (leader) throw new Error(`This side is away and follows the ${leader} side, so its own Smart start is paused`)
   const state = runStateOf(side)
   return apply(side, command(state, name, buildContext(side, state, now)), now)
 }
@@ -145,7 +153,7 @@ export async function runCommand(side: Side, name: Command, now = Date.now()): P
  * an off side still sends a press record, so a setting keeps it off until then.
  */
 export async function noteSmartPress(side: Side): Promise<void> {
-  if (!getPodSettings().pressStartsClosedSide || !getSideSettings(side).smartStart) return
+  if (!getPodSettings().pressStartsClosedSide || !getSideSettings(side).smartStart || followingOf(side)) return
   if (presenceOf(side).occupied !== true) return
   const phase = runStateOf(side).phase
   if (phase === 'closed' || phase === 'idle') await runCommand(side, 'start-back')

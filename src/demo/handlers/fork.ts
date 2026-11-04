@@ -12,6 +12,7 @@ const side = (otherSideShare: number) => ({
   rotation: null,
   surface: { reading: null, offset: 0 },
   resumedAt: null,
+  following: null,
 })
 
 export const fork: DemoHandlers<'fork'> = {

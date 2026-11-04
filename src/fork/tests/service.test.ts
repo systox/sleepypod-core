@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('../smart/runner', () => ({ tickSide: vi.fn() }))
+vi.mock('../smart/runner', () => ({ tickSide: vi.fn(), runStateOf: vi.fn(), setRunAside: vi.fn() }))
 vi.mock('../weeks', () => ({ syncRotation: vi.fn() }))
 vi.mock('../holds', () => ({ clearPressWaits: vi.fn(), stepSmoothReturn: vi.fn() }))
 vi.mock('../presence/collector', () => ({ closeStaleMinute: vi.fn(), sensorsFresh: () => true }))

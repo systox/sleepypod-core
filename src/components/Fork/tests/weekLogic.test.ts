@@ -108,6 +108,7 @@ function view(over: Partial<SideView>): SideView {
     rotation: null,
     surface: { reading: null, offset: 0 },
     resumedAt: null,
+    following: null,
     ...over,
   }
 }

@@ -7,6 +7,7 @@ import { coverLink } from '@/src/fork/coverLink'
 import { fadeOf } from '@/src/fork/holds'
 import { noiseStatus, setNoise, syncNoise } from '@/src/fork/noise'
 import { powerResumedAt } from '@/src/fork/powerResume'
+import { followingOf } from '@/src/fork/smart/following'
 import { selfTestSummary } from '@/src/fork/selftest'
 import { acceptSuggestion, dismissSuggestion, suggestionsFor } from '@/src/fork/suggestions'
 import { surfaceView } from '@/src/fork/surface'
@@ -44,6 +45,7 @@ function sideView(side: Side, now: number) {
     rotation: rotationView(side, now),
     surface: surfaceView(side, now),
     resumedAt: powerResumedAt(side),
+    following: followingOf(side),
   }
 }
 

@@ -11,9 +11,10 @@ import { clearStaleNoise, stopLeftoverPlayers, stopNoise, syncNoise } from './no
 import { syncPowerResume } from './powerResume'
 import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
-import { getPodSettings, getSideSettings } from './settings'
+import { getPodSettings } from './settings'
 import { syncSelfTest } from './selftest'
-import { tickSide } from './smart/runner'
+import { bedState, smartSourceOf, smartStartFor, syncFollowing } from './smart/following'
+import { runStateOf, setRunAside, tickSide } from './smart/runner'
 import { closeStore, dailyHousekeeping, readKey, storeProblem, writeKey } from './store'
 import { clearSurfaces, stepSurface } from './surface'
 import { syncRotation } from './weeks'
@@ -52,7 +53,9 @@ function refreshFlags(): void {
   runtime.detectionOn = pod.detection !== 'off'
   runtime.detectionLive = pod.detection === 'live'
   runtime.ownershipStaleMs = pod.ownershipStaleMinutes * 60_000
-  runtime.smartSides = { left: getSideSettings('left').smartStart, right: getSideSettings('right').smartStart }
+  // An away side following the home sleeper takes that sleeper's Smart start setting.
+  const beds = bedState()
+  runtime.smartSides = { left: smartStartFor('left', beds), right: smartStartFor('right', beds) }
   runtime.lastBeat = Date.now()
 }
 
@@ -64,12 +67,26 @@ function warnFailed(what: string) {
 
 const smartTick = async (): Promise<void> => {
   refreshFlags()
-  if (!runtime.detectionLive || runtime.disabled) return
+  if (runtime.disabled) return
+  const live = runtime.detectionLive
+  const beds = bedState()
+  const leaders = { left: smartSourceOf('left', beds), right: smartSourceOf('right', beds) }
+  const follows = (side: Side) => leaders[side] !== null && leaders[side] !== side
+  // Home sides first, so a side following one picks up this tick's change.
   for (const side of SIDES) {
+    if (!live || follows(side)) continue
     // A side that keeps failing must not hold up the other one.
     await tickSide(side).catch((error) => {
       console.warn(`[fork] ${side} tick failed:`, error instanceof Error ? error.message : error)
     })
+  }
+  // Even with detection not live, so a side that stops following lets go of its copy.
+  for (const side of SIDES) {
+    const leader = leaders[side]
+    const homeWriteAt = leader && leader !== side ? runStateOf(leader).lastWriteAt : null
+    await syncFollowing(side, leader, live, homeWriteAt).then((started) => {
+      if (started) setRunAside(side)
+    }).catch(warnFailed(`${side} following`))
   }
 }
 
