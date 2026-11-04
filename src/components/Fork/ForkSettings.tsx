@@ -121,7 +121,7 @@ export function ForkSettings({ pod, left, right, names }: {
         <SettingRow
           label="Empty side follows Smart start"
           sub={pod.followSmartStart
-            ? 'When one sleeper is away, or the bed is set up for one, and Other temperature zone is set to Follow my schedule, the empty side takes the home sleeper\'s Smart start too: it comes on and goes off with their curve.'
+            ? 'When an empty side matches the other side (the Away card at the bottom of the Schedule page), it takes the home sleeper\'s Smart start too: it comes on and goes off with their curve.'
             : 'Off: an empty side that follows the home sleeper gets only their weekly schedule, at its set times.'}
         >
           <Toggle on={pod.followSmartStart} label="Empty side follows Smart start" onChange={followSmartStart => savePod.mutate({ patch: { followSmartStart } })} />

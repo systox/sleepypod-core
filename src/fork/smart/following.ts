@@ -1,7 +1,8 @@
 /**
  * Smart start for an empty side that follows the sleeper at home: a side
  * whose sleeper is away, or the unused side of a bed set up for one, when
- * "Other temperature zone" follows that sleeper's schedule and the pod
+ * the away side is set to match the other side (device_settings
+ * unusedZoneMode 'follow', on the Schedule page's Away card) and the pod
  * setting followSmartStart is on. The home sleeper's Smart start setting then
  * decides for both sides, and the empty side's own is set aside. With the
  * setting off, every side keeps its own Smart start setting, as before.
