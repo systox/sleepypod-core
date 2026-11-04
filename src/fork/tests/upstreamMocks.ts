@@ -9,6 +9,7 @@ import { vi } from 'vitest'
 vi.mock('@/src/components/Fork/RotationCard', () => ({ RotationCard: () => null }))
 vi.mock('@/src/components/Fork/BothRotation', () => ({ BothRotation: () => null }))
 vi.mock('@/src/components/Fork/SwitchCard', () => ({ SwitchCard: () => null }))
+vi.mock('@/src/components/Fork/AwayCard', () => ({ AwayCard: () => null }))
 vi.mock('@/src/components/Fork/WeeksSection', () => ({ WeeksSection: () => null }))
 vi.mock('@/src/components/Fork/useRunCurve', () => ({ useRunCurve: () => null }))
 vi.mock('@/src/components/Fork/NoiseCard', () => ({ NoiseQuickToggle: () => null, NoiseSection: () => null }))

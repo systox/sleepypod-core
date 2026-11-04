@@ -31,6 +31,7 @@ import { ScheduleToggle } from './ScheduleToggle'
 import { SchedulerConfirmation } from './SchedulerConfirmation'
 import { AlarmSection } from './AlarmSection'
 import { curveSlug, formatDayRange, parseCurveSlug, sameDays } from './scheduleFormat'
+import { AwayCard } from '@/src/components/Fork/AwayCard'
 import { BothRotation } from '@/src/components/Fork/BothRotation'
 import { RotationCard } from '@/src/components/Fork/RotationCard'
 import { SwitchCard } from '@/src/components/Fork/SwitchCard'
@@ -482,6 +483,8 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
           <SchedulerStatus sideLabel={sideLabel} next={next} />
         </div>
       </div>
+
+      <AwayCard side={side} both={both} />
 
       <ConfirmDialog
         open={pendingSavedDelete !== null}
