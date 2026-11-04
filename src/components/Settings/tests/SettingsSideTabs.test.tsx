@@ -51,19 +51,17 @@ describe('Settings per-side tabs', () => {
     render(<SettingsScreen />)
 
     expect(screen.queryByRole('tablist', { name: 'Person' })).toBeNull()
-    const names = ['Profile side', 'Away mode side', 'Auto-off side', 'Auto-on side']
-    // Bed setup is device-wide: only the four per-side cards get tabs.
+    const names = ['Profile side', 'Auto-off side', 'Auto-on side']
+    // Bed setup is device-wide: only the three per-side cards get tabs.
     expect(screen.getAllByRole('tablist').map(t => t.getAttribute('aria-label'))).toEqual(names)
     for (const n of names) expect(selected(screen.getByRole('tablist', { name: n }))).toBe('Alex')
     expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Alex')
-    expect(screen.getByLabelText('Toggle away mode for Left side').getAttribute('aria-checked')).toBe('true')
     expect((screen.getByLabelText('Auto-off after') as HTMLSelectElement).value).toBe('15')
 
     fireEvent.click(within(screen.getByRole('tablist', { name: 'Auto-off side' })).getByRole('tab', { name: 'Sam' }))
 
     for (const n of names) expect(selected(screen.getByRole('tablist', { name: n }))).toBe('Sam')
     expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Sam')
-    expect(screen.getByLabelText('Toggle away mode for Right side').getAttribute('aria-checked')).toBe('false')
     expect((screen.getByLabelText('Auto-off after') as HTMLSelectElement).value).toBe('60')
     expect(screen.getByText('Presence unavailable')).toBeTruthy()
   })

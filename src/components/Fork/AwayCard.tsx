@@ -15,6 +15,8 @@ interface Sleeper { name: string, away: boolean, awayReturn: string | null }
 export interface AwayFacts {
   sleepers: Record<Side, Sleeper>
   zoneMode: ZoneMode
+  /** The bed is set up for one sleeper, so the same choice covers its empty side. */
+  solo: boolean
   /** The empty side copies Smart start too, not only the curve (the fork's followSmartStart). */
   followsSmartStart: boolean
   smartStart: Record<Side, boolean>
@@ -34,7 +36,7 @@ export function awayLine(side: Side, facts: AwayFacts, timeFormat: TimeFormat): 
   if (!away) return `Pauses ${name}'s alarms and sleep tracking. ${name}'s curves and settings stay saved.`
   return awayReturn && new Date(awayReturn).getTime() > Date.now()
     ? `Away until ${returnWords(awayReturn, timeFormat)}. Then ${name}'s own curve and settings apply again.`
-    : `Away until switched off. Set a return time to have it switch off by itself.`
+    : 'Away until switched off, or until the time set below.'
 }
 
 /** The away side's choices, named for the sleeper at home when only one is away. */
@@ -48,8 +50,18 @@ export function zoneOptions(facts: AwayFacts): Array<{ value: ZoneMode, label: s
   ]
 }
 
+/** The choice's name: whose side it is, when only one sleeper is away. */
+export function zoneLabel(facts: AwayFacts): string {
+  const away = (['left', 'right'] as const).filter(side => facts.sleepers[side].away)
+  return away.length === 1 ? `${facts.sleepers[away[0]].name}'s side while away` : 'The away sleeper\'s side'
+}
+
 /** What the chosen setting does, with tonight's names when someone is away. */
 export function zoneLine(facts: AwayFacts): string {
+  return facts.solo ? `${awayZoneLine(facts)} The same choice sets the empty side of this bed, which is set up for one sleeper.` : awayZoneLine(facts)
+}
+
+function awayZoneLine(facts: AwayFacts): string {
   const away = (['left', 'right'] as const).filter(side => facts.sleepers[side].away)
   if (away.length === 2) return 'Both sleepers are away, so both sides stay off whatever this is set to.'
   if (away.length === 0) {
@@ -101,10 +113,14 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
   const facts: AwayFacts = {
     sleepers: { left: sleeper('left'), right: sleeper('right') },
     zoneMode: (settings.device.unusedZoneMode ?? 'off') as ZoneMode,
+    solo: (settings.device.bedMode ?? 'two') !== 'two',
     followsSmartStart: fork?.pod.followSmartStart ?? false,
     smartStart: { left: fork?.left.settings.smartStart ?? false, right: fork?.right.settings.smartStart ?? false },
   }
-  const shown: Side[] = both ? ['left', 'right'] : facts.sleepers[other(side)].away ? [side, other(side)] : [side]
+  // Whoever is away first: while the page is locked to the sleeper at home, they're the one to find here.
+  const shown: Side[] = (both ? ['left', 'right'] as Side[] : facts.sleepers[other(side)].away ? [side, other(side)] : [side])
+    .sort((a, b) => Number(facts.sleepers[b].away) - Number(facts.sleepers[a].away))
+  const zone = zoneLabel(facts)
   const busy = saveSide.isPending || saveDevice.isPending
   const error = saveSide.error ?? saveDevice.error
 
@@ -125,7 +141,7 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
               />
             </SettingRow>
             {away && (
-              <SettingRow divider={false} label="Back" sub="Optional. Away switches off by itself at this time." className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center">
+              <SettingRow divider={false} label="Back" className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center">
                 <input
                   key={awayReturn ?? 'none'}
                   aria-label={`When ${name} is back`}
@@ -146,12 +162,12 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
       })}
       <SettingRow
         divider={false}
-        label="The away sleeper's side"
-        sub={`${zoneLine(facts)} This choice also sets the empty side of a bed set up for one sleeper.`}
+        label={zone}
+        sub={zoneLine(facts)}
         className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center"
       >
         <SelectValue
-          label="The away sleeper's side"
+          label={zone}
           value={facts.zoneMode}
           options={zoneOptions(facts)}
           onChange={unusedZoneMode => saveDevice.mutate({ unusedZoneMode })}

@@ -213,8 +213,8 @@ describe('SidebarSearch', () => {
 
   it('ranks an exact setting name above its docs page', () => {
     view()
-    openPalette('Away mode')
-    expect(screen.getAllByRole('option')[0].textContent).toBe('Away modeSettings › Sides')
+    openPalette('Auto-off')
+    expect(screen.getAllByRole('option')[0].textContent).toBe('Auto-offSettings › Sides')
   })
 
   it('uses a valid live index for the session', async () => {

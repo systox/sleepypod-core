@@ -49,7 +49,7 @@ const NAV_META: Record<NavId, { description: MessageDescriptor, keywords: string
   base: { description: msg`Raise or lower the adjustable base`, keywords: 'base bed elevation head feet incline tilt position' },
   tonight: { description: msg`Each side tonight, past nights and Smart start settings`, keywords: 'smart start warm up reading mode nights in bed' },
   autopilot: { description: msg`Automations that adjust the bed for you`, keywords: 'automation automations rules smart' },
-  schedule: { description: msg`Temperature curves, power and alarms`, keywords: 'curve curves alarm alarms wake bedtime timer program' },
+  schedule: { description: msg`Temperature curves, power and alarms`, keywords: 'curve curves alarm alarms wake bedtime timer program away vacation travel trip zone' },
   sleep: { description: msg`Nights, sleep stages and vitals`, keywords: 'nights history hypnogram stages data' },
   system: { description: msg`Pod health and diagnostics`, keywords: 'status diagnostics debug health pod' },
   settings: { description: msg`Preferences for the pod and this device`, keywords: 'preferences options configuration config' },
@@ -64,7 +64,7 @@ const SECTION_KEYWORDS: Record<SectionId, string> = {
   'homekit': 'apple home siri iphone',
   'mqtt': 'home assistant broker hass',
   'network': 'firewall internet wifi wi-fi online offline lan connectivity',
-  'sides': 'sleepers people names away auto-off auto-on presence',
+  'sides': 'sleepers people names auto-off auto-on presence',
   'sleep-stages': 'stages rem deep light wake rules hypnogram',
   'updates': 'update upgrade version release software disk storage',
 }
@@ -133,7 +133,6 @@ const SETTINGS: ReadonlyArray<{ section: SectionId, title: MessageDescriptor, de
 
   { section: 'sides', title: msg`Bed setup`, description: msg`Choose who normally sleeps here`, keywords: 'sleepers solo couple single one person both zone' },
   { section: 'sides', title: msg`Side name`, description: msg`What each side is called`, keywords: 'name rename profile person' },
-  { section: 'sides', title: msg`Away mode`, description: msg`Temporarily pause a sleeper’s tracking and alarms`, keywords: 'away vacation travel pause trip' },
   { section: 'sides', title: msg`Auto-off`, description: msg`Turns a side off after you leave the bed`, keywords: 'auto off leave bed presence empty always on' },
   { section: 'sides', title: msg`Auto-on`, description: msg`Turns a side on once you’ve settled into bed`, keywords: 'auto on presence occupancy get in bed' },
 

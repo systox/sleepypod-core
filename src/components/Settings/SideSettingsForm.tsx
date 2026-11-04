@@ -37,18 +37,13 @@ interface SideSettingsFormProps {
 const AUTO_OFF_DURATION_OPTIONS = [5, 10, 15, 30, 45, 60, 90, 120] as const
 const AUTO_ON_DWELL_OPTIONS = [1, 2, 3, 5, 10, 15, 30] as const
 
-function localDateTime(iso: string): string {
-  const date = new Date(iso)
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-}
-
 function formatMinutes(mins: number): string {
   if (mins < 60) return `${mins} min`
   return `${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`
 }
 
 /**
- * Per-side settings: profile name, away mode, always on, auto-off, and the
+ * Per-side settings: profile name, always on, auto-off, and the
  * experimental presence auto-on.
  */
 export function SideSettingsForm({ side, sideData, presenceAvailable, onSideChange }: SideSettingsFormProps) {
@@ -83,7 +78,6 @@ function SideCards({ data, presenceAvailable, onSideChange }: {
 }) {
   const utils = trpc.useUtils()
   const [name, setName] = useState(data.name)
-  const [awayMode, setAwayMode] = useState(data.awayMode)
   const [alwaysOn, setAlwaysOn] = useState(data.alwaysOn)
   const [autoOffEnabled, setAutoOffEnabled] = useState(data.autoOffEnabled)
   const [autoOffMinutes, setAutoOffMinutes] = useState(data.autoOffMinutes)
@@ -119,12 +113,6 @@ function SideCards({ data, presenceAvailable, onSideChange }: {
     if (e.key === 'Enter') {
       ;(e.target as HTMLInputElement).blur()
     }
-  }
-
-  function handleAwayToggle() {
-    const newVal = !awayMode
-    setAwayMode(newVal)
-    mutation.mutate({ side: data.side, awayMode: newVal })
   }
 
   function handleAlwaysOnToggle() {
@@ -214,33 +202,6 @@ function SideCards({ data, presenceAvailable, onSideChange }: {
           </label>
           <TextField label="Side" mono={false} value={sideLabel} />
         </div>
-      </Card>
-
-      <Card>
-        {tabs('Away mode')}
-        <CardHeader title="Away mode" subtitle="Temporarily pause this sleeper’s tracking and alarms. Their profile and schedules are saved. The other-zone preference controls temperature while one sleeper is home." />
-        <SettingRow label="Away">
-          <Toggle
-            on={awayMode}
-            onChange={handleAwayToggle}
-            disabled={isPending}
-            label={`Toggle away mode for ${sideLabel} side`}
-          />
-        </SettingRow>
-        <SettingRow className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center" label="Return date" sub="Optional. Uses your local time.">
-          <input
-            aria-label={`Return date for ${sideLabel} side`}
-            type="datetime-local"
-            className="rounded-ctl border border-line-2 bg-field px-2 py-1 text-sm"
-            defaultValue={data.awayReturn ? localDateTime(data.awayReturn) : ''}
-            disabled={isPending}
-            onBlur={(event) => {
-              const value = event.target.value
-              const awayReturn = value ? new Date(value).toISOString() : null
-              if (awayReturn !== (data.awayReturn ?? null)) mutation.mutate({ side: data.side, awayReturn })
-            }}
-          />
-        </SettingRow>
       </Card>
     </>
   )

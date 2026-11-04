@@ -26,7 +26,7 @@ vi.mock('@/src/providers/TimeFormatProvider', () => ({ useTimeFormat: () => '12h
 
 vi.unmock('@/src/components/Fork/AwayCard')
 
-import { AwayCard, type AwayFacts, zoneLine, zoneOptions } from '../AwayCard'
+import { AwayCard, type AwayFacts, zoneLabel, zoneLine, zoneOptions } from '../AwayCard'
 
 const sides = (leftAway: boolean, awayReturn: string | null = null) => ({
   left: { name: 'Sam', awayMode: leftAway, awayReturn },
@@ -36,6 +36,7 @@ const sides = (leftAway: boolean, awayReturn: string | null = null) => ({
 const facts = (over: Partial<AwayFacts> = {}): AwayFacts => ({
   sleepers: { left: { name: 'Sam', away: true, awayReturn: null }, right: { name: 'Alex', away: false, awayReturn: null } },
   zoneMode: 'follow',
+  solo: false,
   followsSmartStart: true,
   smartStart: { left: false, right: true },
   ...over,
@@ -54,6 +55,8 @@ describe('what the away side does', () => {
     expect(zoneLine(facts({ smartStart: { left: true, right: false } }))).toBe('Sam\'s side runs Alex\'s curve at its set times until Sam is back.')
     expect(zoneLine(facts({ zoneMode: 'off' }))).toBe('Sam\'s side stays off until Sam is back.')
     expect(zoneOptions(facts()).map(o => o.label)).toEqual(['Turns off', 'Matches Alex\'s side', 'Keeps its own curve'])
+    expect(zoneLabel(facts())).toBe('Sam\'s side while away')
+    expect(zoneLine(facts({ zoneMode: 'off', solo: true }))).toBe('Sam\'s side stays off until Sam is back. The same choice sets the empty side of this bed, which is set up for one sleeper.')
   })
 
   it('speaks generally when nobody is away, and says both away means off', () => {
@@ -76,7 +79,8 @@ describe('the Away card', () => {
   it('lists the away sleeper too while the page is locked to the one at home', () => {
     h.settings = { sides: sides(true, '2099-01-01T21:00:00.000Z'), device: { bedMode: 'two', unusedZoneMode: 'follow' } }
     render(<AwayCard side="right" both={false} />)
-    expect(screen.getByRole('switch', { name: 'Alex is away' })).toBeTruthy()
+    // The away sleeper comes first.
+    expect(screen.getAllByRole('switch').map(s => s.getAttribute('aria-label'))).toEqual(['Sam is away', 'Alex is away'])
     expect(screen.getByText(/^Away until .+\. Then Sam's own curve and settings apply again\.$/)).toBeTruthy()
     // Switching back also clears the return time, so its job can't switch the side on later.
     fireEvent.click(screen.getByRole('switch', { name: 'Sam is away' }))

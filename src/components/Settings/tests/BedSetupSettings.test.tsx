@@ -22,12 +22,6 @@ it('changes permanent setup without writing away or linking preferences', () => 
   expect(m.mutate).toHaveBeenCalledExactlyOnceWith({ bedMode: 'solo-right' })
 })
 
-it.each(['follow', 'off', 'independent'])('saves the %s temperature policy separately', (unusedZoneMode) => {
-  render(<BedSetupSettings device={{ bedMode: 'solo-left', unusedZoneMode: 'off' }} names={{ left: 'Alex', right: 'Sam' }} />)
-  fireEvent.change(screen.getByLabelText('Other temperature zone'), { target: { value: unusedZoneMode } })
-  expect(m.mutate).toHaveBeenCalledExactlyOnceWith({ unusedZoneMode })
-})
-
 it('shows a save failure', () => {
   m.error = new Error('Unable to save bed setup')
   render(<BedSetupSettings device={{}} names={{ left: 'Alex', right: 'Sam' }} />)

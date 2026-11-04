@@ -42,7 +42,7 @@ describe('search index', () => {
   it('finds controls by heading and by synonym, linking to their section', () => {
     expect(top('pump stall')).toMatchObject({ title: 'Pump stall protection', crumbs: ['Settings', 'Device'], href: '/settings?section=device' })
     expect(top('home assistant').href).toBe('/settings?section=mqtt')
-    expect(top('vacation')).toMatchObject({ title: 'Away mode', href: '/settings?section=sides' })
+    expect(top('vacation').href).toBe('/schedule')
     expect(top('dark mode')).toMatchObject({ title: 'Theme', href: '/settings?section=appearance' })
   })
 
