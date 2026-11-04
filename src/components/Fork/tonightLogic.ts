@@ -12,6 +12,8 @@ export interface SideView {
   upcoming: { bedtime: number, windowStart: number, windowEnd: number, firstTemperature: number } | null
   rotation: { thisPresetId: string } | null
   surface: { reading: number | null, offset: number }
+  /** When the side last came back on after a restart. */
+  resumedAt: number | null
 }
 
 export interface NextStep { at: number, temperature: number }

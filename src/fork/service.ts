@@ -8,6 +8,7 @@ import { clearPressWaits, stepSmoothReturn } from './holds'
 import { noteNightStart } from './nights'
 import { clearMiddleWaits } from './middleButton'
 import { clearStaleNoise, stopLeftoverPlayers, stopNoise, syncNoise } from './noise'
+import { syncPowerResume } from './powerResume'
 import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -74,6 +75,7 @@ const smartTick = async (): Promise<void> => {
 
 const fastTick = async (): Promise<void> => {
   closeStaleMinute()
+  await syncPowerResume().catch(warnFailed('power resume'))
   for (const side of SIDES) {
     await stepSmoothReturn(side).catch(warnFailed(`${side} smooth return`))
     await stepSurface(side).catch(warnFailed(`${side} surface range`))

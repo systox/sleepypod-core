@@ -54,6 +54,8 @@ export const podSettingsSchema = z.object({
   ownershipStaleMinutes: z.number().min(1).max(30),
   timerRefreshHours: z.number().min(1).max(7.5),
   maxFailedStartups: z.number().int().min(1).max(20),
+  /** After a power cut or restart, turn a side back on that was on and is still inside its curve. */
+  resumeAfterPowerCut: z.boolean(),
   /** White noise starts at the bedtime of this side's curve, or whichever comes first. */
   noiseAuto: z.boolean(),
   noiseSide: z.enum(['left', 'right', 'either']),
@@ -64,6 +66,8 @@ export const podSettingsSchema = z.object({
   /** It stops once the bed has been empty this long. */
   noiseEmptyMinutes: z.number().min(1).max(120),
   noiseMaxHours: z.number().min(1).max(16),
+  /** When a session ends, the sound fades out over this many seconds. 0 stops it at once. */
+  noiseFadeSeconds: z.number().int().min(0).max(300),
   middleSingle: z.enum(['none', 'noise']),
   middleDouble: z.enum(['none', 'noise']),
   middleTriple: z.enum(['none', 'noise']),
@@ -122,6 +126,7 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   ownershipStaleMinutes: 2,
   timerRefreshHours: 6,
   maxFailedStartups: 3,
+  resumeAfterPowerCut: false,
   noiseAuto: false,
   noiseSide: 'either',
   noiseVolume: 20,
@@ -129,6 +134,7 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   noiseWaitMinutes: 60,
   noiseEmptyMinutes: 10,
   noiseMaxHours: 12,
+  noiseFadeSeconds: 0,
   middleSingle: 'none',
   middleDouble: 'none',
   middleTriple: 'none',

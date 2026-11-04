@@ -21,9 +21,13 @@ vi.mock('@/src/utils/trpc', () => ({
   },
 }))
 
+vi.mock('@/src/hooks/useSideNames', () => ({ useSideNames: () => ({ leftName: 'Left', rightName: 'Right' }) }))
+vi.mock('@/src/providers/TimeFormatProvider', () => ({ useTimeFormat: () => '12h' }))
+
 vi.unmock('@/src/components/Fork/NoiseCard')
 
-import { NoiseQuickToggle } from '../NoiseCard'
+import { DEFAULT_POD_SETTINGS } from '@/src/fork/settingsSchema'
+import { NoiseQuickToggle, NoiseSection } from '../NoiseCard'
 
 const noise = (over: Record<string, unknown>) => ({ on: true, playing: true, reason: 'app', since: 1, problem: null, ...over })
 
@@ -62,5 +66,16 @@ describe('the Temp screen noise button', () => {
     h.saveError = { message: 'offline' }
     render(<NoiseQuickToggle />)
     expect(screen.getByText('Not saved')).toBeTruthy()
+  })
+})
+
+describe('the white noise section of the Temp screen', () => {
+  it('offers every sound, the curve start, the empty-bed stop and the fade', () => {
+    h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({ on: false, playing: false }) }
+    render(<NoiseSection />)
+    expect(screen.getByRole('region', { name: 'White noise' })).toBeTruthy()
+    expect(screen.getByText('Start when the curve starts')).toBeTruthy()
+    expect(screen.getByText('Stops once everyone is out of bed for, minutes')).toBeTruthy()
+    expect(screen.getByText('Fades out over, seconds')).toBeTruthy()
   })
 })

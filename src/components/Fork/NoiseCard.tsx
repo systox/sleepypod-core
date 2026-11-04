@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Button, Card, InlineError, SectionLabel, SelectValue, SettingRow, Slider, StatusDot, Toggle } from '@/src/components/ds'
 import type { ForkPodSettings } from '@/src/fork/settings'
 import type { Side } from '@/src/hardware/types'
+import { useSideNames } from '@/src/hooks/useSideNames'
 import { formatClock } from '@/src/lib/timeFormat'
 import { useTimeFormat } from '@/src/providers/TimeFormatProvider'
 import { trpc } from '@/src/utils/trpc'
@@ -144,21 +145,24 @@ export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: 
         <SettingRow label="Volume, 0 to 100">
           <NumberField label="Volume, 0 to 100" value={pod.noiseVolume} step={5} onSave={noiseVolume => save.mutate({ patch: { noiseVolume: Math.round(noiseVolume) } })} />
         </SettingRow>
+        <SettingRow label="Fades out over, seconds" sub="When it stops, by itself or from a button. 0 stops it at once.">
+          <NumberField label="Fades out over, seconds" value={pod.noiseFadeSeconds} step={5} onSave={noiseFadeSeconds => save.mutate({ patch: { noiseFadeSeconds: Math.round(noiseFadeSeconds) } })} />
+        </SettingRow>
       </Card>
 
       <SectionLabel className="mt-1">White noise at bedtime</SectionLabel>
       <Card className="gap-2.5">
-        <SettingRow divider={false} label="Start at bedtime" sub="Starts at the curve's bedtime and stops once the bed is empty. Needs detection to tell the bed is empty.">
-          <Toggle on={pod.noiseAuto} label="Start at bedtime" onChange={noiseAuto => save.mutate({ patch: { noiseAuto } })} />
+        <SettingRow divider={false} label="Start when the curve starts" sub="Plays from the curve's bedtime until everyone is out of bed. Needs detection to tell the bed is empty.">
+          <Toggle on={pod.noiseAuto} label="Start when the curve starts" onChange={noiseAuto => save.mutate({ patch: { noiseAuto } })} />
         </SettingRow>
-        <SettingRow label="Whose bedtime">
-          <SelectValue label="Whose bedtime" value={pod.noiseSide} options={[...sides]} onChange={noiseSide => save.mutate({ patch: { noiseSide } })} />
+        <SettingRow label="Whose curve">
+          <SelectValue label="Whose curve" value={pod.noiseSide} options={[...sides]} onChange={noiseSide => save.mutate({ patch: { noiseSide } })} />
         </SettingRow>
         <SettingRow label="Waits for someone to get in, minutes">
           <NumberField label="Waits for someone to get in, minutes" value={pod.noiseWaitMinutes} step={5} onSave={noiseWaitMinutes => save.mutate({ patch: { noiseWaitMinutes } })} />
         </SettingRow>
-        <SettingRow label="Stops after the bed is empty, minutes">
-          <NumberField label="Stops after the bed is empty, minutes" value={pod.noiseEmptyMinutes} onSave={noiseEmptyMinutes => save.mutate({ patch: { noiseEmptyMinutes } })} />
+        <SettingRow label="Stops once everyone is out of bed for, minutes">
+          <NumberField label="Stops once everyone is out of bed for, minutes" value={pod.noiseEmptyMinutes} onSave={noiseEmptyMinutes => save.mutate({ patch: { noiseEmptyMinutes } })} />
         </SettingRow>
         <SettingRow label="Longest, hours">
           <NumberField label="Longest, hours" value={pod.noiseMaxHours} step={0.5} onSave={noiseMaxHours => save.mutate({ patch: { noiseMaxHours } })} />
@@ -176,5 +180,18 @@ export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: 
       </Card>
       {(save.error ?? set.error) && <InlineError>{(save.error ?? set.error)?.message}</InlineError>}
     </>
+  )
+}
+
+/** All the white noise controls, for the bottom of the Temp screen. */
+export function NoiseSection() {
+  const { data } = useForkOverview()
+  const { leftName, rightName } = useSideNames()
+  if (!data) return null
+  return (
+    <section className="mt-4 flex flex-col gap-2.5" aria-label="White noise">
+      <SectionLabel>White noise</SectionLabel>
+      <NoiseCard pod={data.pod} noise={data.noise} names={{ left: leftName, right: rightName }} />
+    </section>
   )
 }

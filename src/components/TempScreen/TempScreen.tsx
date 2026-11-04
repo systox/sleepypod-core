@@ -1,7 +1,7 @@
 'use client'
 
 import { useHoldSetting } from '@/src/components/Fork/HoldSetting'
-import { NoiseQuickToggle } from '@/src/components/Fork/NoiseCard'
+import { NoiseQuickToggle, NoiseSection } from '@/src/components/Fork/NoiseCard'
 import Link from 'next/link'
 import { activeSleeperSides, scheduleSourceSide } from '@/src/lib/singleSleeper'
 import { useEffect, useState } from 'react'
@@ -302,6 +302,7 @@ export const TempScreen = () => {
       </div>
 
       <ScheduleTimeline unit={unit} sides={shown} className="max-[899px]:hidden" />
+      <NoiseSection />
     </>
   )
 }

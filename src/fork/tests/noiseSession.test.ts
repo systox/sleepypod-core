@@ -117,6 +117,42 @@ describe('a white noise session', () => {
     expect(h.spawn.mock.calls[1][1][1]).toContain('--volume=32768')
   })
 
+  it('fades out over the set seconds when the session ends, then stops the player', async () => {
+    vi.useFakeTimers()
+    setPodSettings({ noiseVolume: 60, noiseFadeSeconds: 3 })
+    setNoise(true, 'app', NOW)
+    const child = h.spawn.mock.results[0].value
+    setNoise(false, 'app', NOW + MIN)
+    expect(noiseStatus()).toMatchObject({ on: false, playing: false })
+    expect(child.kill).not.toHaveBeenCalled()
+    syncNoise(NOW + MIN + 1_000)
+    await vi.advanceTimersByTimeAsync(3_000)
+    const levels = h.execFile.mock.calls.filter(call => call[1][0] === 'set-sink-input-volume').map(call => call[1][2])
+    expect(levels).toEqual(['26214', '13107', '0'])
+    expect(child.kill).toHaveBeenCalledOnce()
+  })
+
+  it('stops a player still fading out when a new session starts', async () => {
+    vi.useFakeTimers()
+    setPodSettings({ noiseFadeSeconds: 30 })
+    setNoise(true, 'app', NOW)
+    const first = h.spawn.mock.results[0].value
+    setNoise(false, 'app', NOW + MIN)
+    setNoise(true, 'app', NOW + MIN + 1_000)
+    expect(first.kill).toHaveBeenCalledOnce()
+    expect(h.spawn).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(h.spawn.mock.results[1].value.kill).not.toHaveBeenCalled()
+    expect(noiseStatus().playing).toBe(true)
+  })
+
+  it('stops at once with no fade set', () => {
+    setNoise(true, 'app', NOW)
+    const child = h.spawn.mock.results[0].value
+    setNoise(false, 'app', NOW + MIN)
+    expect(child.kill).toHaveBeenCalledOnce()
+  })
+
   it('stays silent at zero volume', () => {
     setPodSettings({ noiseVolume: 0 })
     setNoise(true, 'app', NOW)

@@ -32,6 +32,8 @@ const BEDTIMES_KEY = 'noise-bedtimes-done'
 const SAME_NIGHT_MS = 12 * 60 * MINUTE
 /** A player still running this long after it started has got past whatever failed before. */
 const SETTLED_MS = 10_000
+/** A fade lowers the volume this often. */
+const FADE_STEP_MS = 1_000
 
 export type NoiseReason = 'app' | 'button' | 'bedtime'
 
@@ -53,15 +55,18 @@ interface NoiseState {
   occupiedAt: number | null
   session: NoiseSession | null | undefined
   childStartedAt: number
+  /** A player whose session has ended, fading out before it is stopped. */
+  fading: ChildProcess | null
 }
 
 const globalNoise = globalThis as typeof globalThis & { __sp_forkNoise?: NoiseState }
 const state: NoiseState = globalNoise.__sp_forkNoise ??= {
-  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0,
+  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0, fading: null,
 }
 
 type NoiseSound = Pick<ForkPodSettings, 'noiseColor' | 'noiseVolume'>
 type NoiseTiming = Pick<ForkPodSettings, 'noiseWaitMinutes' | 'noiseEmptyMinutes' | 'noiseMaxHours'>
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
 /** PulseAudio's volume scale, where 65536 is full. */
 function paVolume(volume: number): number {
@@ -102,6 +107,8 @@ function changeVolume(volume: number): void {
     const { stdout } = await execFileAsync('pactl', ['list', 'sink-inputs'], { timeout: PACTL_TIMEOUT_MS })
     const streams = playerStreams(stdout)
     if (streams.length === 0) throw new Error('the player has no stream yet')
+    // A stop or fade can begin while the listing runs.
+    if (state.child !== child || state.volume === null) return
     const level = String(paVolume(state.volume))
     for (const stream of streams) await execFileAsync('pactl', ['set-sink-input-volume', stream, level], { timeout: PACTL_TIMEOUT_MS })
   }).catch((error) => {
@@ -158,6 +165,8 @@ function bedNow(now: number): { empty: boolean | null, any: boolean } {
 
 export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): void {
   if (!on) {
+    // A stop sent while it is already fading out cuts the fade short.
+    if (!loadSession()) stopNoise()
     saveSession(null, reason)
   }
   else if (!loadSession()) {
@@ -171,19 +180,66 @@ export function toggleNoise(reason: NoiseReason, now = Date.now()): void {
   setNoise(!loadSession(), reason, now)
 }
 
+function killPlayer(child: ChildProcess | null): void {
+  if (!child) return
+  try {
+    if (!child.pid) throw new Error('no process group')
+    process.kill(-child.pid, 'SIGTERM')
+  }
+  catch {
+    child.kill('SIGTERM')
+  }
+}
+
+/** Stop the player at once, and any player still fading out. */
 export function stopNoise(): void {
   const child = state.child
   state.child = null
   state.key = null
   state.volume = null
-  if (child?.pid) {
+  killPlayer(child)
+  const fading = state.fading
+  state.fading = null
+  killPlayer(fading)
+}
+
+/**
+ * Lower the ended session's player to silence over the set seconds, then stop
+ * it. It no longer counts as playing, so a new session starts a fresh player,
+ * which stops this one.
+ */
+function fadeOutNoise(seconds: number): void {
+  const child = state.child
+  const from = state.volume ?? 0
+  state.child = null
+  state.key = null
+  state.volume = null
+  if (!child) return
+  killPlayer(state.fading)
+  state.fading = child
+  void (async () => {
     try {
-      process.kill(-child.pid, 'SIGTERM')
+      const { stdout } = await execFileAsync('pactl', ['list', 'sink-inputs'], { timeout: PACTL_TIMEOUT_MS })
+      const streams = playerStreams(stdout)
+      if (streams.length === 0) throw new Error('the player has no stream to fade')
+      const steps = Math.max(1, Math.round(seconds * 1000 / FADE_STEP_MS))
+      for (let step = steps - 1; step >= 0 && state.fading === child; step--) {
+        await sleep(FADE_STEP_MS)
+        if (state.fading !== child) break
+        const level = String(paVolume(from * step / steps))
+        for (const stream of streams) await execFileAsync('pactl', ['set-sink-input-volume', stream, level], { timeout: PACTL_TIMEOUT_MS })
+      }
     }
-    catch {
-      child.kill('SIGTERM')
+    catch (error) {
+      console.warn('[fork] white noise fade failed, stopping it at once:', error instanceof Error ? error.message : error)
     }
-  }
+    finally {
+      if (state.fading === child) {
+        state.fading = null
+        killPlayer(child)
+      }
+    }
+  })()
 }
 
 function start(command: string, key: string, volume: number): void {
@@ -247,7 +303,10 @@ export function syncNoise(now = Date.now()): void {
   }
   if (!loadSession() || pod.noiseVolume === 0) {
     state.failedKey = null
-    stopNoise()
+    // A fade already under way is left to finish.
+    if (state.child && loadSession() === null && pod.noiseFadeSeconds > 0) fadeOutNoise(pod.noiseFadeSeconds)
+    // Volume 0 silences a fade too.
+    else if (state.child || pod.noiseVolume === 0) stopNoise()
     return
   }
   const key = pod.noiseColor
