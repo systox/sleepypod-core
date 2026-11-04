@@ -5,7 +5,7 @@ import { sideSchema } from '@/src/server/validation-schemas'
 import { markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
 import { coverLink } from '@/src/fork/coverLink'
 import { fadeOf } from '@/src/fork/holds'
-import { noiseStatus, setNoise } from '@/src/fork/noise'
+import { noiseStatus, setNoise, syncNoise } from '@/src/fork/noise'
 import { selfTestSummary } from '@/src/fork/selftest'
 import { acceptSuggestion, dismissSuggestion, suggestionsFor } from '@/src/fork/suggestions'
 import { surfaceView } from '@/src/fork/surface'
@@ -86,6 +86,15 @@ export const forkRouter = router({
         const wasLive = getPodSettings().detection === 'live'
         const saved = setPodSettings(input.patch)
         if (saved.detection === 'live' && !wasLive) SIDES.forEach(side => noteSwitchedOn(side))
+        // A noise volume or sound change reaches the player now, not at the next tick.
+        if (Object.keys(input.patch).some(key => key.startsWith('noise'))) {
+          try {
+            syncNoise()
+          }
+          catch (error) {
+            console.warn('[fork] white noise update after a setting change failed:', error instanceof Error ? error.message : error)
+          }
+        }
         return saved
       }
       catch (error) {
