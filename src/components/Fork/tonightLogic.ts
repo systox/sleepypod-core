@@ -1,6 +1,6 @@
 import type { RunState } from '@/src/fork/smart/engine'
 import type { ForkSideSettings } from '@/src/fork/settings'
-import type { Side } from '@/src/hardware/types'
+import type { FollowView } from '@/src/fork/smart/following'
 
 const MINUTE = 60_000
 
@@ -15,8 +15,8 @@ export interface SideView {
   surface: { reading: number | null, offset: number }
   /** When the side last came back on after a restart. */
   resumedAt: number | null
-  /** While this side's sleeper is away: the home side whose curve and Smart start it follows. */
-  following: Side | null
+  /** While this side is empty: the home side whose curve and Smart start it follows. */
+  following: FollowView | null
 }
 
 export interface NextStep { at: number, temperature: number }

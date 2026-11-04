@@ -18,7 +18,8 @@ interface ForkRuntime {
   ownershipStaleMs: number
   detectionOn: boolean
   detectionLive: boolean
-  smartSides: Record<Side, boolean>
+  /** Whether Smart start governs a side, read from the bed as it is when asked. The service sets it. */
+  smartFor: (side: Side) => boolean
   personPower: Map<Side, PersonPowerMark>
 }
 
@@ -34,7 +35,7 @@ export const runtime: ForkRuntime = globalRuntime.__sp_forkRuntime ??= {
   ownershipStaleMs: 2 * 60_000,
   detectionOn: false,
   detectionLive: false,
-  smartSides: { left: false, right: false },
+  smartFor: () => false,
   personPower: new Map(),
 }
 
@@ -47,9 +48,9 @@ export function smartOwnsSide(side: Side, now = Date.now()): boolean {
   return runtime.running
     && !runtime.disabled
     && runtime.detectionLive
-    && runtime.smartSides[side]
     && now - runtime.lastBeat < runtime.ownershipStaleMs
     && now - runtime.sensorsOkAt < runtime.ownershipStaleMs
+    && runtime.smartFor(side)
 }
 
 /** A person turned a side on or off. Sleepypod doesn't otherwise record who did. */

@@ -94,7 +94,8 @@ export function windowsAround(temps: CurveRow[], powers: PowerRow[], timezone: s
   return { window: open[0] ?? null, next: coming[0] ?? null }
 }
 
-function clockIn(timezone: string, at: number): string {
+/** A time as HH:mm on the Pod's clock, as run-once set points take it. */
+export function clockIn(timezone: string, at: number): string {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(at))
   const value = (type: string) => parts.find(p => p.type === type)?.value ?? '00'
   return `${value('hour').padStart(2, '0')}:${value('minute').padStart(2, '0')}`

@@ -13,8 +13,8 @@ import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getPodSettings } from './settings'
 import { syncSelfTest } from './selftest'
-import { bedState, smartSourceOf, smartStartFor, syncFollowing } from './smart/following'
-import { runStateOf, setRunAside, tickSide } from './smart/runner'
+import { bedState, releaseFollowing, smartSourceOf, smartStartFor, syncFollowing } from './smart/following'
+import { noteSwitchedOn, runStateOf, setRunAside, tickSide } from './smart/runner'
 import { closeStore, dailyHousekeeping, readKey, storeProblem, writeKey } from './store'
 import { clearSurfaces, stepSurface } from './surface'
 import { syncRotation } from './weeks'
@@ -53,10 +53,18 @@ function refreshFlags(): void {
   runtime.detectionOn = pod.detection !== 'off'
   runtime.detectionLive = pod.detection === 'live'
   runtime.ownershipStaleMs = pod.ownershipStaleMinutes * 60_000
-  // An away side following the home sleeper takes that sleeper's Smart start setting.
-  const beds = bedState()
-  runtime.smartSides = { left: smartStartFor('left', beds), right: smartStartFor('right', beds) }
   runtime.lastBeat = Date.now()
+}
+
+/** Asked when sleepypod checks ownership, so an away change counts at once, not at the next tick. */
+function smartFor(side: Side): boolean {
+  try {
+    return smartStartFor(side)
+  }
+  catch (error) {
+    console.warn(`[fork] ${side} Smart start setting unreadable:`, error instanceof Error ? error.message : error)
+    return false
+  }
 }
 
 function warnFailed(what: string) {
@@ -65,28 +73,35 @@ function warnFailed(what: string) {
   }
 }
 
-const smartTick = async (): Promise<void> => {
+export const smartTick = async (): Promise<void> => {
   refreshFlags()
   if (runtime.disabled) return
   const live = runtime.detectionLive
   const beds = bedState()
   const leaders = { left: smartSourceOf('left', beds), right: smartSourceOf('right', beds) }
-  const follows = (side: Side) => leaders[side] !== null && leaders[side] !== side
-  // Home sides first, so a side following one picks up this tick's change.
+  // Even with detection not live, so a side that stops following lets go of its copy.
+  const follow = async (side: Side) => {
+    const leader = leaders[side]
+    const homeWriteAt = leader !== side ? runStateOf(leader).lastWriteAt : null
+    await syncFollowing(side, beds, live, homeWriteAt).then((result) => {
+      if (result === 'started') setRunAside(side)
+      if (result === 'back-in-bed') noteSwitchedOn(side)
+    }).catch(warnFailed(`${side} following`))
+  }
+  // Home sides first, so a side following one picks up this tick's change. A
+  // home side that has just stopped following settles that before its own
+  // rules run, so a sleeper back in bed doesn't have their curve begin again.
   for (const side of SIDES) {
-    if (!live || follows(side)) continue
+    if (leaders[side] !== side) continue
+    await follow(side)
+    if (!live) continue
     // A side that keeps failing must not hold up the other one.
     await tickSide(side).catch((error) => {
       console.warn(`[fork] ${side} tick failed:`, error instanceof Error ? error.message : error)
     })
   }
-  // Even with detection not live, so a side that stops following lets go of its copy.
   for (const side of SIDES) {
-    const leader = leaders[side]
-    const homeWriteAt = leader && leader !== side ? runStateOf(leader).lastWriteAt : null
-    await syncFollowing(side, leader, live, homeWriteAt).then((started) => {
-      if (started) setRunAside(side)
-    }).catch(warnFailed(`${side} following`))
+    if (leaders[side] !== side) await follow(side)
   }
 }
 
@@ -126,6 +141,7 @@ export function startForkService(): void {
     writeKey(FAILED_STARTS_KEY, failures)
     runtime.disabled = failures > getPodSettings().maxFailedStartups ? `Stopped after ${failures - 1} failed startups` : null
     if (runtime.disabled) console.error('[fork]', runtime.disabled)
+    runtime.smartFor = smartFor
     refreshFlags()
     runtime.running = true
     const timers = [
@@ -140,6 +156,7 @@ export function startForkService(): void {
     globalService.__sp_forkService = { timers, settled }
     guarded('housekeeping', () => dailyHousekeeping())()
     guarded('rotation', rotationTick)()
+    if (runtime.disabled) guarded('following', () => releaseFollowing())()
     guarded('noise', () => {
       stopLeftoverPlayers()
       clearStaleNoise()

@@ -51,7 +51,12 @@ function SideCard({ side, name, otherName, view, now }: { side: Side, name: stri
         ? <span className="text-[13px] text-fg-2">{`Easing back to ${formatSetpointF(view.fade.curve, unit)} by ${clock(view.fade.by)}`}</span>
         : step && <span className="text-[13px] text-fg-2">{`Next: ${formatSetpointF(step.temperature, unit)} at ${clock(step.at)}`}</span>}
       {run.note && <span className="text-[13px] text-fg-2">{run.note}</span>}
-      {view.following && <span className="text-[13px] text-fg-2">{`Away: this side follows ${otherName}'s curve and Smart start.`}</span>}
+      {view.following && (
+        <span className="text-[13px] text-fg-2">
+          {`${view.following.why === 'away' ? 'Away: this side' : 'Unused side: it'} follows ${otherName}'s curve and Smart start.`}
+          {view.following.dismissed && ` Turned off for now: it stays off until ${otherName}'s curve ends, or until it's turned back on.`}
+        </span>
+      )}
       {view.resumedAt !== null && now - view.resumedAt < RESUMED_SHOWN_MS && (
         <span className="text-[13px] text-fg-2">{`Turned back on at ${clock(view.resumedAt)}: it was on when the Pod lost power or restarted.`}</span>
       )}

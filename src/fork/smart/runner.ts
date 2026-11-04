@@ -11,6 +11,7 @@ import { getTemperatureController } from '@/src/temperature/instance'
 import { presenceOf, sensorsFresh, takeEntry, twoBodies } from '../presence/collector'
 import { takePersonPower } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
+import { caller } from '../caller'
 import { deviceTimezone } from '../clock'
 import { logEvent, readKey, writeKey } from '../store'
 import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow } from './curves'
@@ -75,11 +76,6 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
   }
 }
 
-async function caller() {
-  const { getCaller } = await import('@/src/mcp/caller')
-  return getCaller()
-}
-
 async function carryOut(side: Side, action: Action, state: RunState, now: number): Promise<RunState> {
   switch (action.kind) {
     case 'write':
@@ -140,9 +136,17 @@ export function noteSwitchedOn(side: Side, now = Date.now()): void {
   if (window) writeKey(key(side), { ...runStateOf(side), windowFor: window.curve.bedtime })
 }
 
+function sideName(side: Side): string {
+  const name = db.select({ name: sideSettings.name }).from(sideSettings).where(eq(sideSettings.side, side)).get()?.name
+  return name || (side === 'left' ? 'Left' : 'Right')
+}
+
 export async function runCommand(side: Side, name: Command, now = Date.now()): Promise<RunState> {
-  const leader = followingOf(side)
-  if (leader) throw new Error(`This side is away and follows the ${leader} side, so its own Smart start is paused`)
+  const following = followingOf(side)
+  if (following) {
+    const why = following.why === 'away' ? 'its sleeper is away' : 'the bed is set up for one'
+    throw new Error(`This side follows ${sideName(following.leader)}'s curve and Smart start while ${why}, so its own Smart start is paused`)
+  }
   const state = runStateOf(side)
   return apply(side, command(state, name, buildContext(side, state, now)), now)
 }

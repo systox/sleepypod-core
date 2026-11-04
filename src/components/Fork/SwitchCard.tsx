@@ -20,7 +20,7 @@ export function SwitchCard({ side }: { side: Side }) {
   const timeFormat = useTimeFormat()
   const { unit } = useTemperatureUnit()
   const lang = langFromPath(usePathname())
-  const { leftName, rightName } = useSideNames()
+  const { sideName } = useSideNames()
   const save = trpc.fork.setSideSettings.useMutation({ onSuccess: refresh })
   if (!data) return null
 
@@ -35,13 +35,19 @@ export function SwitchCard({ side }: { side: Side }) {
   const needsSmart = 'Only works with Smart start on.'
   const set = (patch: Partial<typeof settings>) => save.mutate({ side, patch })
 
-  const homeName = view.following === 'left' ? leftName : rightName
+  const other: Side = side === 'left' ? 'right' : 'left'
+  const follower = data[other].following?.leader === side ? data[other].following : null
+  const lead = view.following
+  const following = lead && (lead.why === 'away'
+    ? `Away: this side follows ${sideName(lead.leader)}'s curve and Smart start. Its own settings below apply again once it's back.`
+    : `Unused side: it follows ${sideName(lead.leader)}'s curve and Smart start. Its own settings below apply once the bed is set up for two.`)
+  const followed = follower && (follower.why === 'away'
+    ? `While ${sideName(other)} is away, their side follows this curve and Smart start too.`
+    : 'The unused side follows this curve and Smart start too.')
 
   return (
     <Card className="gap-2.5">
-      {view.following && (
-        <span className="text-[13px] text-fg-2">{`Away: this side follows ${homeName}'s curve and Smart start. Its own settings below apply again once it's back.`}</span>
-      )}
+      {(following || followed) && <span className="text-[13px] text-fg-2">{following || followed}</span>}
       <SettingRow
         divider={false}
         label="Smart start"
