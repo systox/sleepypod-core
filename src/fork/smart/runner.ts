@@ -14,7 +14,7 @@ import { getPodSettings, getSideSettings } from '../settings'
 import { caller } from '../caller'
 import { deviceTimezone } from '../clock'
 import { logEvent, readKey, writeKey } from '../store'
-import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow } from './curves'
+import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow, type WindowHours } from './curves'
 import { followingOf } from './following'
 import { command, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
 
@@ -40,9 +40,10 @@ function curveRows(side: Side): { temps: CurveRow[], powers: PowerRow[] } {
   }
 }
 
-export function windowsOf(side: Side, now: number): { window: TonightWindow | null, next: TonightWindow | null } {
+/** Tonight's window and the next, by the side's own watch hours unless others are given. */
+export function windowsOf(side: Side, now: number, hours: WindowHours = getSideSettings(side)): { window: TonightWindow | null, next: TonightWindow | null } {
   const { temps, powers } = curveRows(side)
-  return windowsAround(temps, powers, deviceTimezone(), now, getSideSettings(side))
+  return windowsAround(temps, powers, deviceTimezone(), now, hours)
 }
 
 function buildContext(side: Side, state: RunState, now: number): TickContext {

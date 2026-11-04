@@ -47,6 +47,8 @@ const RUNS_KEY = 'noise-runs-done'
 const HAND_STOP_KEY = 'noise-hand-stop'
 /** Why and when the last session ended, so one that ended on an empty bed can start again. */
 const LAST_STOP_KEY = 'noise-last-stop'
+/** Longer than any curve runs: the start checks look this far past a curve's start time. */
+const LONGEST_NIGHT_HOURS = 24
 /** How many seconds a new player waits for its stream to appear before fading in. */
 const STREAM_WAIT_STEPS = 5
 
@@ -162,7 +164,7 @@ export function noiseSides(pod: Pick<ForkPodSettings, 'noiseSide'>, home: Side[]
 }
 
 /** Bedtimes that have just passed on these sides. */
-export function dueBedtimes(sides: Side[], now: number, bedtimeOf: (side: Side) => number | null = side => windowsOf(side, now).window?.curve.bedtime ?? null): number[] {
+export function dueBedtimes(sides: Side[], now: number, bedtimeOf: (side: Side) => number | null): number[] {
   return sides.map(bedtimeOf).filter((at): at is number => at !== null && at <= now && now - at < BEDTIME_LATE_MS)
 }
 
@@ -208,6 +210,8 @@ export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): vo
   else if (!loadSession()) {
     state.occupiedAt = bedNow(now).any ? now : null
     saveSession({ reason, startedAt: now }, reason, now)
+    // Starting it again by hand takes back an earlier stop by hand.
+    if (!BY_ITSELF.includes(reason)) removeKey(HAND_STOP_KEY)
   }
   syncNoise(now)
 }
@@ -305,6 +309,8 @@ function fadeInNoise(seconds: number): void {
         if (state.rising !== child) break
         const volume = getPodSettings().noiseVolume * step / steps
         for (const stream of streams) await execFileAsync('pactl', ['set-sink-input-volume', stream, String(paVolume(volume))], { timeout: PACTL_TIMEOUT_MS })
+        // A stop or a new player during the step owns the volume now.
+        if (state.rising !== child) break
         state.volume = volume
       }
     }
@@ -350,34 +356,60 @@ function start(command: string, key: string, volume: number): void {
   state.childStartedAt = Date.now()
 }
 
-/** Whether Smart start runs this sleeper's curve, rather than the clock. */
-function smartRuns(side: Side, pod: ForkPodSettings): boolean {
-  return pod.detection === 'live' && getSideSettings(side).smartStart
-}
-
-/** When the Smart start run under way on this side began, or null. A Reading mode hold counts. */
-function smartRunStart(side: Side): number | null {
-  const run = runStateOf(side)
-  return (run.phase === 'reading' || run.phase === 'running') && run.startedAt !== null ? run.startedAt : null
-}
-
-/** Whether this side's curve is running now: its Smart start run, or its curve's hours by the clock. */
-function curveRunning(side: Side, pod: ForkPodSettings, now: number): boolean {
-  if (smartRuns(side, pod)) return smartRunStart(side) !== null
-  const curve = windowsOf(side, now).window?.curve
-  if (!curve || curve.points.length === 0) return false
-  return now >= curve.bedtime && now < curve.bedtime + curve.points[curve.points.length - 1].offset * MINUTE
+/** One sleeper's night as the start checks see it, read once a check. */
+interface SideNight {
+  side: Side
+  /** Smart start runs this sleeper's curve, rather than the clock. */
+  smart: boolean
+  /** The start time of the curve nearest now, or null. */
+  bedtime: number | null
+  /** When tonight's watch hours opened, while tonight lasts; null between nights. */
+  opensAt: number | null
+  /** When this sleeper's curve began running tonight, or null while it isn't running. */
+  runningSince: number | null
+  /** When the Smart start run under way began, or null. A Reading mode hold counts. */
+  runStart: number | null
 }
 
 /**
- * Someone stopped the noise by hand since tonight's earliest window opened,
- * so nothing starts it by itself until the next night. A stop earlier in the
- * evening doesn't count.
+ * Tonight for one sleeper. The curve is looked up with watch hours long
+ * enough to keep it until it ends: the side's own watch hours can close while
+ * a long curve still runs. Tonight lasts while the watch hours are open or the
+ * curve still runs.
  */
-function handStoppedTonight(sides: Side[], now: number): boolean {
+function nightOf(side: Side, pod: ForkPodSettings, now: number): SideNight {
+  const settings = getSideSettings(side)
+  const smart = pod.detection === 'live' && settings.smartStart
+  const curve = windowsOf(side, now, { hoursEarly: settings.hoursEarly, hoursLate: LONGEST_NIGHT_HOURS }).window?.curve ?? null
+  const run = runStateOf(side)
+  const runStart = (run.phase === 'reading' || run.phase === 'running') && run.startedAt !== null ? run.startedAt : null
+  const early = settings.hoursEarly * 60 * MINUTE
+  if (smart && runStart !== null) {
+    return { side, smart, bedtime: curve?.bedtime ?? null, opensAt: (run.bedtime ?? runStart) - early, runningSince: runStart, runStart }
+  }
+  if (!curve) return { side, smart, bedtime: null, opensAt: null, runningSince: null, runStart }
+  const ends = curve.bedtime + (curve.points.at(-1)?.offset ?? 0) * MINUTE
+  const clockRunning = now >= curve.bedtime && now < ends
+  const watching = now >= curve.bedtime - early && now < curve.bedtime + settings.hoursLate * 60 * MINUTE
+  return {
+    side,
+    smart,
+    bedtime: curve.bedtime,
+    opensAt: watching || clockRunning ? curve.bedtime - early : null,
+    runningSince: !smart && clockRunning ? curve.bedtime : null,
+    runStart,
+  }
+}
+
+/**
+ * Someone stopped the noise by hand since tonight's earliest watch hours
+ * opened, and hasn't started it by hand since, so nothing starts it by itself
+ * until the next night. A stop earlier in the evening doesn't count.
+ */
+function handStoppedTonight(nights: SideNight[]): boolean {
   const stoppedAt = readKey<number>(HAND_STOP_KEY)
   if (stoppedAt === null) return false
-  const opens = sides.map(side => windowsOf(side, now).window?.windowStart).filter((at): at is number => typeof at === 'number')
+  const opens = nights.map(night => night.opensAt).filter((at): at is number => at !== null)
   return opens.length > 0 && stoppedAt >= Math.min(...opens)
 }
 
@@ -388,8 +420,8 @@ function startByItself(reason: NoiseReason, someoneInBed: boolean, now: number):
 }
 
 /** Start at a curve start time that has just passed, once per start time and once a night. */
-function startAtBedtime(sides: Side[], now: number): void {
-  const due = dueBedtimes(sides, now)
+function startAtBedtime(nights: SideNight[], now: number): void {
+  const due = dueBedtimes(nights.map(night => night.side), now, side => nights.find(night => night.side === side)?.bedtime ?? null)
   const done = readKey<number[]>(BEDTIMES_KEY) ?? []
   const fresh = due.filter(at => !done.includes(at))
   if (fresh.length === 0) return
@@ -399,11 +431,8 @@ function startAtBedtime(sides: Side[], now: number): void {
 }
 
 /** Start as Smart start begins a sleeper's curve, once per run. Someone is in bed by then, so there's no wait. */
-function startWithSmartStart(sides: Side[], now: number): void {
-  const runs = sides.flatMap((side) => {
-    const at = smartRunStart(side)
-    return at !== null && now - at < RUN_LATE_MS ? [`${side}:${at}`] : []
-  })
+function startWithSmartStart(nights: SideNight[], now: number): void {
+  const runs = nights.flatMap(({ side, runStart }) => runStart !== null && now - runStart < RUN_LATE_MS ? [`${side}:${runStart}`] : [])
   const done = readKey<string[]>(RUNS_KEY) ?? []
   const fresh = runs.filter(run => !done.includes(run))
   if (fresh.length === 0) return
@@ -411,22 +440,28 @@ function startWithSmartStart(sides: Side[], now: number): void {
   startByItself('smart-start', true, now)
 }
 
-/** A session that ended on an empty bed starts again when someone gets back in while a curve still runs. */
-function startOnReturn(sides: Side[], pod: ForkPodSettings, now: number): void {
+/**
+ * A session that ended on an empty bed starts again when a sleeper gets back
+ * into their own side while their curve runs, if it ended during that same
+ * curve: a stop from an earlier night or before the curve began doesn't count.
+ */
+function startOnReturn(nights: SideNight[], now: number): void {
   const last = readKey<{ why: string, at: number }>(LAST_STOP_KEY)
-  if (last?.why !== 'bed empty' || !bedNow(now).any) return
-  if (sides.some(side => curveRunning(side, pod, now))) startByItself('return', true, now)
+  if (last?.why !== 'bed empty' || !sensorsFresh(now)) return
+  const back = nights.some(({ side, runningSince }) => runningSince !== null && last.at >= runningSince && presenceOf(side).occupied === true)
+  if (back) startByItself('return', true, now)
 }
 
 /** Start the noise by itself as noiseStart says. A broken curve can't stop the rest. */
 function startNoiseByItself(pod: ForkPodSettings, now: number): void {
   try {
-    const sides = noiseSides(pod, activeSleeperSides(bedState()))
-    if (sides.length === 0 || handStoppedTonight(sides, now)) return
+    const nights = noiseSides(pod, activeSleeperSides(bedState())).map(side => nightOf(side, pod, now))
+    if (nights.length === 0 || handStoppedTonight(nights)) return
     // A sleeper Smart start doesn't run starts the noise at their curve's start time.
-    startAtBedtime(pod.noiseStart === 'smart' ? sides.filter(side => !smartRuns(side, pod)) : sides, now)
-    if (pod.noiseStart === 'smart') startWithSmartStart(sides.filter(side => smartRuns(side, pod)), now)
-    startOnReturn(sides, pod, now)
+    const bySmart = pod.noiseStart === 'smart'
+    startAtBedtime(bySmart ? nights.filter(night => !night.smart) : nights, now)
+    if (bySmart) startWithSmartStart(nights.filter(night => night.smart), now)
+    startOnReturn(nights, now)
   }
   catch (error) {
     console.warn('[fork] white noise start check failed:', error instanceof Error ? error.message : error)
