@@ -77,20 +77,20 @@ describe('the white noise section of the Temp screen', () => {
     expect(screen.getByText('Start white noise')).toBeTruthy()
     expect(screen.getByText('Stops once everyone is out of bed for, minutes')).toBeTruthy()
     expect(screen.getByText('Fades in and out over, seconds')).toBeTruthy()
-    // Off by default: who and how long to wait only matter once it starts by itself.
+    // Off by default: whose curve only matters once it starts by itself. The wait still covers Play with nobody in bed.
     expect(screen.queryByText('Whose curve')).toBeNull()
-    expect(screen.queryByText('Waits for someone to get in, minutes')).toBeNull()
+    expect(screen.getByText('Waits for someone to get in, minutes')).toBeTruthy()
   })
 
-  it('asks how long to wait only when it starts at the curve\'s start time', () => {
+  it('says Smart start needs Detection set to Live, and what it does once it is', () => {
     h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart' }, noise: noise({ on: false, playing: false }) }
     const { unmount } = render(<NoiseSection />)
     expect(screen.getByText('Whose curve')).toBeTruthy()
-    expect(screen.queryByText('Waits for someone to get in, minutes')).toBeNull()
-    expect(screen.getByText(/^Starts about 5 minutes after someone gets into bed/)).toBeTruthy()
-    unmount()
-    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'clock' }, noise: noise({ on: false, playing: false }) }
-    render(<NoiseSection />)
     expect(screen.getByText('Waits for someone to get in, minutes')).toBeTruthy()
+    expect(screen.getByText(/^Starts at the curve's start time for now: starting when someone gets into bed needs Detection set to Live/)).toBeTruthy()
+    unmount()
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart', detection: 'live' }, noise: noise({ on: false, playing: false }) }
+    render(<NoiseSection />)
+    expect(screen.getByText(/^Starts as Smart start begins someone's curve, a few minutes after they get into bed/)).toBeTruthy()
   })
 })

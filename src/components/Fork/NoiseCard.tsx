@@ -51,10 +51,11 @@ const STARTS = [
 ] as const
 
 /** What the chosen way of starting does, in a sentence. */
-export function startLine(start: ForkPodSettings['noiseStart'], wait: number): string {
+export function startLine(start: ForkPodSettings['noiseStart'], detection: ForkPodSettings['detection']): string {
   if (start === 'off') return 'Starts only from Play or the middle button.'
-  if (start === 'clock') return `Starts at the curve's start time, even if nobody is in bed yet. If nobody gets in within ${wait} minutes, it stops.`
-  return 'Starts about 5 minutes after someone gets into bed, as Smart start takes over their side, even if Reading mode holds the curve until its start time. A sleeper without Smart start gets it at the curve\'s start time. Smart start is set per sleeper on the Schedule page.'
+  if (start === 'clock') return 'Starts at the curve\'s start time, even if nobody is in bed yet.'
+  if (detection !== 'live') return 'Starts at the curve\'s start time for now: starting when someone gets into bed needs Detection set to Live in Tonight settings.'
+  return 'Starts as Smart start begins someone\'s curve, a few minutes after they get into bed, even if Reading mode holds the curve until its start time. A sleeper without Smart start gets it at the curve\'s start time. Smart start is set per sleeper on the Schedule page.'
 }
 
 function useSetNoise() {
@@ -174,7 +175,7 @@ export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: 
         <SettingRow
           divider={false}
           label="Start white noise"
-          sub={`${startLine(pod.noiseStart, pod.noiseWaitMinutes)}${pod.noiseStart === 'off' ? '' : ' If the bed has been empty long enough to stop it, it starts again when someone gets back in while their curve runs, unless someone stopped it by hand that night.'}`}
+          sub={`${startLine(pod.noiseStart, pod.detection)}${pod.noiseStart === 'off' ? '' : ' If the bed has been empty long enough to stop it, it starts again when a sleeper gets back into their side while their curve runs, unless someone stopped it by hand that night.'}`}
           className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center"
         >
           <SelectValue label="Start white noise" value={pod.noiseStart} options={[...STARTS]} onChange={noiseStart => save.mutate({ patch: { noiseStart } })} />
@@ -184,11 +185,9 @@ export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: 
             <SelectValue label="Whose curve" value={pod.noiseSide} options={[...sides]} onChange={noiseSide => save.mutate({ patch: { noiseSide } })} />
           </SettingRow>
         )}
-        {pod.noiseStart === 'clock' && (
-          <SettingRow label="Waits for someone to get in, minutes">
-            <NumberField label="Waits for someone to get in, minutes" value={pod.noiseWaitMinutes} step={5} onSave={noiseWaitMinutes => save.mutate({ patch: { noiseWaitMinutes } })} />
-          </SettingRow>
-        )}
+        <SettingRow label="Waits for someone to get in, minutes" sub="For noise that starts with nobody in bed, at the curve's start time or from Play or the middle button. After that, it stops once the bed has been empty for the time below.">
+          <NumberField label="Waits for someone to get in, minutes" value={pod.noiseWaitMinutes} step={5} onSave={noiseWaitMinutes => save.mutate({ patch: { noiseWaitMinutes } })} />
+        </SettingRow>
         <SettingRow label="Stops once everyone is out of bed for, minutes">
           <NumberField label="Stops once everyone is out of bed for, minutes" value={pod.noiseEmptyMinutes} onSave={noiseEmptyMinutes => save.mutate({ patch: { noiseEmptyMinutes } })} />
         </SettingRow>

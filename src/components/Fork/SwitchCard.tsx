@@ -66,8 +66,8 @@ export function SwitchCard({ side }: { side: Side }) {
         sub={!settings.smartStart
           ? needsSmart
           : settings.readingMode
-            ? `In bed up to ${hours(settings.hoursEarly)} before the curve's start: about 5 minutes after you get in, the side comes on and holds the curve's first temperature until the start time. Then the curve begins.`
-            : `In bed up to ${hours(settings.hoursEarly)} before the curve's start: the whole curve starts about 5 minutes after you get in.`}
+            ? `In bed up to ${hours(settings.hoursEarly)} before the curve's start: about ${settings.minutesToCall} minutes after you get in, the side comes on and holds the curve's first temperature until the start time. Then the curve begins.`
+            : `In bed up to ${hours(settings.hoursEarly)} before the curve's start: the whole curve starts about ${settings.minutesToCall} minutes after you get in.`}
       >
         <Toggle on={settings.readingMode} label="Reading mode" disabled={!settings.smartStart} onChange={readingMode => set({ readingMode })} />
       </SettingRow>
