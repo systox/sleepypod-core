@@ -640,22 +640,9 @@ if [ "$(cat "$IPTABLES_MODULES_DROPIN" 2>/dev/null || true)" != "$iptables_modul
   systemctl daemon-reload
 fi
 
-# Fork: white noise plays through the system PulseAudio, which admits only
-# clients holding its cookie. The cookie lives in /run and changes each boot,
-# so copy it for the service user before every start.
-NOISE_AUDIO_DROPIN=/etc/systemd/system/sleepypod.service.d/fork-noise-audio.conf
-mkdir -p "$(dirname "$NOISE_AUDIO_DROPIN")"
-noise_audio_content=$(cat << 'EOF'
-[Unit]
-After=pulseaudio.service
-[Service]
-Environment="PULSE_COOKIE=/run/sleepypod-pulse-cookie"
-ExecStartPre=+/bin/sh -c 'install -m 640 -o root -g sleepypod /run/pulse/.config/pulse/cookie /run/sleepypod-pulse-cookie 2>/dev/null; true'
-EOF
-)
-if [ "$(cat "$NOISE_AUDIO_DROPIN" 2>/dev/null || true)" != "$noise_audio_content" ]; then
-  printf '%s\n' "$noise_audio_content" > "$NOISE_AUDIO_DROPIN"
-  systemctl daemon-reload
+if [ -f "$INSTALL_DIR/scripts/lib/fork-noise-audio-helpers" ]; then
+  source "$INSTALL_DIR/scripts/lib/fork-noise-audio-helpers"
+  install_fork_noise_audio
 fi
 
 # Replace the pre-existing ExecStart fallback (`pnpm start`, which cannot run

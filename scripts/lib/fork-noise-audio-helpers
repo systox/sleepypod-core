@@ -1,0 +1,25 @@
+# Fork: white noise plays through the system PulseAudio, which admits only
+# clients holding its cookie. The cookie lives in /run and changes each boot,
+# so copy it for the service user before every start.
+#
+# PulseAudio's unit is Type=simple: systemd counts it started as soon as it
+# launches, and the cookie appears about a second later. So the copy waits up
+# to ten seconds for it while PulseAudio is up, and never blocks the app's
+# start beyond that. (No shell variables: systemd would expand them.)
+install_fork_noise_audio() {
+  local dropin=/etc/systemd/system/sleepypod.service.d/fork-noise-audio.conf
+  local content
+  content=$(cat << 'EOF'
+[Unit]
+After=pulseaudio.service
+[Service]
+Environment="PULSE_COOKIE=/run/sleepypod-pulse-cookie"
+ExecStartPre=+/bin/sh -c 'for try in 1 2 3 4 5 6 7 8 9 10; do [ -s /run/pulse/.config/pulse/cookie ] && break; systemctl is-active -q pulseaudio.service || break; sleep 1; done; install -m 640 -o root -g sleepypod /run/pulse/.config/pulse/cookie /run/sleepypod-pulse-cookie 2>/dev/null; true'
+EOF
+  )
+  mkdir -p "$(dirname "$dropin")"
+  if [ "$(cat "$dropin" 2>/dev/null || true)" != "$content" ]; then
+    printf '%s\n' "$content" > "$dropin"
+    systemctl daemon-reload
+  fi
+}
