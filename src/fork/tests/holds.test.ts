@@ -17,7 +17,8 @@ vi.mock('@/src/temperature/instance', () => ({
   }),
 }))
 vi.mock('@/src/hardware/sideLock', () => ({ withSideLock: (_side: string, fn: () => unknown) => fn() }))
-vi.mock('../smart/runner', () => ({ noteSmartPress: vi.fn() }))
+const noteSmartPress = vi.hoisted(() => vi.fn())
+vi.mock('../smart/runner', () => ({ noteSmartPress }))
 vi.mock('@/src/db', () => ({
   db: {
     select: () => ({ from: () => ({ where: () => ({ get: () => ({ target: h.target }) }) }) }),
@@ -117,6 +118,14 @@ describe('press reports from the cover', () => {
     await vi.advanceTimersByTimeAsync(15_000)
     expect(h.setManualLocked).not.toHaveBeenCalled()
     expect(listEvents(0, Date.now() + 1, ['press'])).toHaveLength(0)
+  })
+
+  it('passes a short click on an off side to Smart start, as the firmware changes nothing there', async () => {
+    h.status = { ...h.status, blocked: 'off' }
+    observePress({ type: 'button-press', right: { button: 'top', type: 'short', count: 1 } })
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(noteSmartPress).toHaveBeenCalledWith('right')
+    expect(h.setManualLocked).not.toHaveBeenCalled()
   })
 
   it('still counts a press that arrives without a type', async () => {
