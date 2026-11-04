@@ -99,7 +99,7 @@ export async function stepSurface(side: Side, now = Date.now()): Promise<void> {
   const reached = live ? target : target + current.offset
   if (offset === current.offset || (want > 0 && reached >= settings.warmestF) || (want < 0 && reached <= MIN_TEMP)) return
   surfaces.set(side, { offset, stepAt: now, warmest: settings.warmestF, live })
-  logEvent(side, live ? 'surface-step' : 'surface-watch', { surface: Math.round(surface * 10) / 10, curve: live ? target - current.offset : target, offset })
+  logEvent(side, live ? 'surface-step' : 'surface-watch', { surface: Math.round(surface * 10) / 10, curve: live ? target - current.offset : target, offset }, now)
   if (live) await controller.reconcile(side)
 }
 
