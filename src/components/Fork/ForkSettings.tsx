@@ -18,7 +18,7 @@ type PodNumber = {
 const SIDE_ROWS: Array<{ key: SideNumber, label: string, sub?: string, step?: number }> = [
   { key: 'hoursEarly', label: 'Hours early that count as tonight', step: 0.5 },
   { key: 'hoursLate', label: 'Hours late that count as tonight', step: 0.5 },
-  { key: 'warmUpWaitHours', label: 'How long Warm up waits for someone', step: 0.5 },
+  { key: 'warmUpWaitHours', label: 'How long Conditioning waits for someone', step: 0.5 },
   { key: 'minutesToCall', label: 'Minutes to call in or out' },
   { key: 'weightRise', label: 'Weight above empty that counts as a body' },
   { key: 'vibrationLimit', label: 'Vibration that counts as a body', step: 10_000 },

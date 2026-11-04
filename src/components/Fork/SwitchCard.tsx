@@ -50,14 +50,14 @@ export function SwitchCard({ side }: { side: Side }) {
       <SettingRow
         divider={false}
         className={settings.smartStart ? undefined : 'opacity-45'}
-        label="Warm up"
+        label="Conditioning"
         sub={!settings.smartStart
           ? needsSmart
           : settings.warmUp
-            ? `At the curve's start time the side comes on, even with nobody in bed, and waits at the curve's first temperature for up to ${hours(settings.warmUpWaitHours)}.`
+            ? `At the curve's start time the side comes on, even with nobody in bed, and brings the bed to the curve's opening temperature, warm or cool. It holds there for up to ${hours(settings.warmUpWaitHours)} for someone to get in.`
             : 'The side stays off until someone gets in bed.'}
       >
-        <Toggle on={settings.warmUp} label="Warm up" disabled={!settings.smartStart} onChange={warmUp => set({ warmUp })} />
+        <Toggle on={settings.warmUp} label="Conditioning" disabled={!settings.smartStart} onChange={warmUp => set({ warmUp })} />
       </SettingRow>
       <SettingRow
         divider={false}

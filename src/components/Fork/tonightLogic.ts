@@ -45,7 +45,7 @@ export function describeSide(view: SideView, now: number, clock: (at: number) =>
     case 'reading':
       return `In bed${since}, curve begins at ${clock(run.curveZeroAt as number)}`
     case 'warming':
-      return `Warmed up, waiting for someone until ${clock(run.copyEndsAt as number)}`
+      return `Conditioned, waiting for someone until ${clock(run.copyEndsAt as number)}`
     case 'closed':
       return run.closedUntil === null ? 'Closed for tonight' : `Closed until ${clock(run.closedUntil)}`
     default:
