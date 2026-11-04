@@ -38,9 +38,9 @@ export function SwitchCard({ side }: { side: Side }) {
       <SettingRow
         divider={false}
         label="Smart start"
-        sub={settings.smartStart
-          ? `The curve starts when someone gets in bed between ${opens} and ${closes}, and ends when they get up. Outside those hours, getting in doesn't start it.`
-          : 'The curve runs at its set times, whether or not anyone is in bed.'}
+        sub={`Starts the curve when someone gets into bed, instead of at its set time, and ends it after they get up. ${settings.smartStart
+          ? `It watches from ${opens} to ${closes}; getting in outside those hours doesn't start it.${data.pod.detection === 'live' ? '' : ' It isn\'t acting yet: set Detection to Live in Tonight settings.'}`
+          : 'Off: the curve runs at its set times, whether or not anyone is in bed.'}`}
       >
         <Toggle on={settings.smartStart} label="Smart start" onChange={smartStart => set({ smartStart })} />
       </SettingRow>
