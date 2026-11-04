@@ -3,7 +3,7 @@
 import { Volume2 } from 'lucide-react'
 import { useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
-import { Button, Card, InlineError, SectionLabel, SelectValue, SettingRow, StatusDot, Toggle } from '@/src/components/ds'
+import { Button, Card, InlineError, SectionLabel, SelectValue, SettingRow, Slider, StatusDot, Toggle } from '@/src/components/ds'
 import type { ForkPodSettings } from '@/src/fork/settings'
 import type { Side } from '@/src/hardware/types'
 import { formatClock } from '@/src/lib/timeFormat'
@@ -51,43 +51,35 @@ export function noiseLine(noise: NoiseView, volume: number, clock: (at: number) 
   return noise.playing ? `Playing${started}${by}` : `Starting${by}`
 }
 
+/** The 3D stage is dark in either theme, so its slider takes the dark colours. */
+const STAGE_SLIDER = { '--text-1': '#ececec', '--border-2': '#3a3a3e', '--surface-card': '#0b0b0c' } as CSSProperties
+
 /**
  * The white noise volume as a slider. It saves once the slider is let go, and
- * a playing session picks the new volume up within a few seconds.
+ * a playing session changes volume within a few seconds without a break.
  */
 function NoiseVolume({ volume, className, style }: { volume: number, className?: string, style?: CSSProperties }) {
   const refresh = useForkRefresh()
   const save = trpc.fork.setPodSettings.useMutation({ onSuccess: refresh })
   const [draft, setDraft] = useState<number | null>(null)
-  const shown = draft ?? volume
-  const commit = () => {
-    if (draft !== null && draft !== volume) save.mutate({ patch: { noiseVolume: draft } }, { onSettled: () => setDraft(null) })
-    else setDraft(null)
+  const commit = (value: number) => {
+    if (value === volume) setDraft(null)
+    else save.mutate({ patch: { noiseVolume: value } }, { onSettled: () => setDraft(null) })
   }
+  const shown = draft ?? volume
   return (
-    <label className={cn('inline-flex items-center gap-2', className)} style={style}>
+    <span className={cn('inline-flex items-center gap-2', className)} style={className ? { ...STAGE_SLIDER, ...style } : style}>
       <span className="font-mono text-xs tabular-nums">{`Vol ${shown}`}</span>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        step={5}
-        value={shown}
-        aria-label="White noise volume"
-        className="w-28 accent-current"
-        onChange={event => setDraft(Number(event.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-      />
-    </label>
+      <Slider className="w-28 flex-none" label="White noise volume" value={shown} step={5} onChange={setDraft} onCommit={commit} />
+      {save.error && <span role="alert" className="text-xs text-danger" title={save.error.message}>Not saved</span>}
+    </span>
   )
 }
 
 /**
  * White noise on or off now for the Temp screen, with its volume while it
- * plays. The 3D stage passes its own pill look; the card view uses the
- * standard button.
+ * plays, and why it isn't playing when the player has failed. The 3D stage
+ * passes its own pill look; the card view uses the standard button.
  */
 export function NoiseQuickToggle({ className, style }: { className?: string, style?: CSSProperties }) {
   const { data } = useForkOverview()
@@ -97,6 +89,7 @@ export function NoiseQuickToggle({ className, style }: { className?: string, sty
   const label = on ? 'Stop white noise' : 'White noise'
   const toggle = () => set.mutate({ on: !on })
   const volume = on && <NoiseVolume volume={data.pod.noiseVolume} className={className} style={style} />
+  const problem = on && !data.noise.playing ? data.noise.problem : null
   if (className) {
     return (
       <>
@@ -105,6 +98,7 @@ export function NoiseQuickToggle({ className, style }: { className?: string, sty
           {label}
         </button>
         {volume}
+        {problem && <span role="alert" className={cn(className, 'cursor-default text-danger hover:bg-transparent')} style={style} title={problem}>Not playing</span>}
       </>
     )
   }
@@ -114,6 +108,7 @@ export function NoiseQuickToggle({ className, style }: { className?: string, sty
         {label}
       </Button>
       {volume}
+      {problem && <InlineError className="basis-full">{`White noise isn't playing. ${problem}`}</InlineError>}
     </>
   )
 }
