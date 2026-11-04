@@ -1,4 +1,4 @@
-import type { CapSense2Frame, CapSenseFrame, SensHealthFrame } from '@/src/hooks/useSensorStream'
+import type { SensHealthFrame } from '@/src/hooks/useSensorStream'
 import { DAYS_OF_WEEK, type DayOfWeek } from '@/src/lib/scheduleTime'
 import type { SchedJob } from './diagnosticsLogic'
 
@@ -74,24 +74,14 @@ export interface MaintenanceFacts {
 
 const PRIME_STALE_MS = 7 * 24 * HOUR
 
-/** A cover reading this close to the health frame proves the cover is talking. */
-const COVER_READING_FRESH_S = 120
-
 /**
  * Sides whose cover sensor reports no link in the latest `sensHealth` frame.
  * Empty without a frame: older firmware never sends one. Only an explicit
- * `connected: false` counts, and only while that side's capacitance readings
- * have stopped too: Pod 5's cover sends `connected: false` on every frame
- * while its readings keep arriving.
+ * `connected: false` counts.
  */
-export function disconnectedCovers(
-  frame: SensHealthFrame | undefined,
-  ...readings: Array<CapSenseFrame | CapSense2Frame | undefined>
-): Array<'left' | 'right'> {
+export function disconnectedCovers(frame: SensHealthFrame | undefined): Array<'left' | 'right'> {
   if (!frame) return []
-  const reading = (side: 'left' | 'right') => readings.some(r =>
-    r != null && r[side] != null && Math.abs(frame.ts - r.ts) <= COVER_READING_FRESH_S)
-  return (['left', 'right'] as const).filter(side => frame[side]?.connected === false && !reading(side))
+  return (['left', 'right'] as const).filter(side => frame[side]?.connected === false)
 }
 
 /**

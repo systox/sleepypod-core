@@ -62,6 +62,7 @@ vi.mock('@/src/utils/trpc', () => {
     useQuery: (input?: { side?: string }) => {
       if (key === 'health.dataPath') return { data: mocks.dataPath }
       if (key === 'health.maintenance') return { data: mocks.maintenance }
+      if (key === 'fork.coverLink') return { data: mocks.frames.sensHealth }
       if (key === 'health.system') return { data: { scheduler: { drift: { drifted: false } } } }
       if (key === 'waterLevel.getLatest') return { data: mocks.water }
       if (key === 'device.getStatus') return { data: mocks.device }
@@ -223,7 +224,7 @@ describe('DiagnosticsConsole dashboard', () => {
     expect(screen.queryByTestId('attention')).toBeNull()
   })
 
-  it('warns per side when sensHealth reports a disconnected cover sensor', () => {
+  it('warns per side when the Pod reports a disconnected cover sensor', () => {
     const health = (left: boolean, right: boolean) => ({ type: 'sensHealth', ts: 1, version: 1, left: { connected: left }, right: { connected: right } })
     mocks.frames = { sensHealth: health(true, true) }
     const { rerender } = render(<DiagnosticsConsole section="dashboard" onJump={vi.fn()} />)

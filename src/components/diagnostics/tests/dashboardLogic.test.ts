@@ -109,15 +109,4 @@ describe('disconnectedCovers', () => {
     expect(disconnectedCovers({ type: 'sensHealth', ts: 1 } as never)).toEqual([])
     expect(disconnectedCovers({ type: 'sensHealth', ts: 1, left: {}, right: { connected: null } } as never)).toEqual([])
   })
-  it('trusts readings still arriving over the flag, as Pod 5 sends false throughout', () => {
-    const health = { ...frame(false, false), ts: 1000 }
-    const cap = { type: 'capSense' as const, ts: 990, left: 4900, right: 5100 }
-    expect(disconnectedCovers(health, cap)).toEqual([])
-    expect(disconnectedCovers(health, undefined, { type: 'capSense2', ts: 1000, left: [1], right: [1] })).toEqual([])
-  })
-  it('still warns once the readings have stopped, or a side is missing from them', () => {
-    const health = { ...frame(false, false), ts: 1000 }
-    expect(disconnectedCovers(health, { type: 'capSense', ts: 700, left: 4900, right: 5100 })).toEqual(['left', 'right'])
-    expect(disconnectedCovers(health, { type: 'capSense', ts: 995, left: 4900 } as never)).toEqual(['right'])
-  })
 })

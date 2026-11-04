@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server'
 import { publicProcedure, router } from '@/src/server/trpc'
 import { sideSchema } from '@/src/server/validation-schemas'
 import { markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
+import { coverLink } from '@/src/fork/coverLink'
 import { fadeOf } from '@/src/fork/holds'
 import { noiseStatus, setNoise } from '@/src/fork/noise'
 import { selfTestSummary } from '@/src/fork/selftest'
@@ -140,6 +141,11 @@ export const forkRouter = router({
         failed('change the white noise', error)
       }
     }),
+
+  /** The cover's health as a sensHealth frame, checked against its readings. Null on older firmware. */
+  coverLink: publicProcedure
+    .input(z.object({}).optional())
+    .query(() => coverLink()),
 
   /** Light enough for the iPhone app's Temp screen to ask often. */
   noiseStatus: publicProcedure

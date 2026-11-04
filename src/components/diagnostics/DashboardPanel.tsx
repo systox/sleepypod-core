@@ -13,6 +13,7 @@ import { trpc } from '@/src/utils/trpc'
 import { useSideNames } from '@/src/hooks/useSideNames'
 import { useShownSides } from '@/src/providers/SideProvider'
 import { useSensorFrame } from '@/src/hooks/useSensorStream'
+import { useCoverLink } from '@/src/components/Fork/useFork'
 import { useTemperatureUnit } from '@/src/hooks/useTemperatureUnit'
 import { Button, Card, HoverMark, InlineError, KeyValue, Skeleton, StatusDot, useHoverFraction } from '@/src/components/ds'
 import { cn } from '@/lib/utils'
@@ -217,9 +218,7 @@ function AttentionCard() {
   const water = trpc.waterLevel.getLatest.useQuery({}, { refetchInterval: 30_000 })
   const device = trpc.device.getStatus.useQuery({}, { refetchInterval: 10_000 })
   const dataPath = trpc.health.dataPath.useQuery({}, { refetchInterval: 60_000 })
-  const sensHealth = useSensorFrame('sensHealth')
-  const capSense = useSensorFrame('capSense')
-  const capSense2 = useSensorFrame('capSense2')
+  const sensHealth = useCoverLink()
   const enableGuard = trpc.settings.updateDevice.useMutation({
     onSuccess: () => {
       void utils.health.maintenance.invalidate()
@@ -234,7 +233,7 @@ function AttentionCard() {
   if (nowMinute == null) return null
   const occupancy = dataPath.data?.occupancy
   const suspectSides = occupancy ? shown.filter(s => occupancy[s] === 'suspect') : []
-  const items = attentionItems(maintenance.data, water.data?.level ?? device.data?.waterLevel, nowMinute * 60_000, suspectSides, disconnectedCovers(sensHealth, capSense, capSense2))
+  const items = attentionItems(maintenance.data, water.data?.level ?? device.data?.waterLevel, nowMinute * 60_000, suspectSides, disconnectedCovers(sensHealth))
   if (items.length === 0) return null
   const priming = device.data?.isPriming ?? false
 

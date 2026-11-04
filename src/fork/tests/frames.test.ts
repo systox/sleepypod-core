@@ -38,3 +38,13 @@ describe('with detection on', () => {
     expect(h.piezo).toHaveBeenCalledOnce()
   })
 })
+
+describe('cover health', () => {
+  it('follows the cover even while the fork\'s service is stopped', async () => {
+    const { coverLink, resetCoverLink } = await import('../coverLink')
+    resetCoverLink()
+    runtime.running = false
+    observeSensorFrame({ type: 'sensHealth', ts: 1, left: { connected: true }, right: { connected: true } })
+    expect(coverLink()).not.toBeNull()
+  })
+})

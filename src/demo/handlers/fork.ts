@@ -31,6 +31,7 @@ export const fork: DemoHandlers<'fork'> = {
   markWrong: () => ({ ok: true }),
   setNoise: input => ({ on: input.on, playing: input.on, reason: input.on ? 'app' as const : null, since: input.on ? Date.now() : null, problem: null }),
   noiseStatus: () => ({ on: false, playing: false, reason: null, since: null, problem: null }),
+  coverLink: () => ({ type: 'sensHealth' as const, ts: Date.now() / 1000, left: { connected: true }, right: { connected: true } }),
   suggestions: () => [],
   answerSuggestion: () => ({ ok: true }),
   selfTest: () => [],

@@ -23,6 +23,7 @@ vi.mock('@/src/hooks/useSensorStream', () => ({ useSensorFrame: (type: string) =
 vi.mock('@/src/utils/trpc', () => ({ trpc: {
   base: { getAvailability: { useQuery: () => ({ data: state.base }) } },
   device: { getStatus: { useQuery: () => ({ data: state.status }) } },
+  fork: { coverLink: { useQuery: () => ({ data: state.frames.sensHealth }) } },
   health: { system: { useQuery: () => ({ data: state.health }) }, maintenance: { useQuery: () => ({}) } },
   system: { getVersion: { useQuery: () => ({ data: state.version }) } },
   waterLevel: { getLatest: { useQuery: () => ({ data: state.water }) } },
@@ -107,11 +108,11 @@ describe('responsive navigation', () => {
     fireEvent.pointerDown(document.body)
     expect(screen.queryByTestId('build-details')).toBeNull()
   })
-  it('lists a disconnected cover sensor only when sensHealth reports it', () => {
+  it('lists a disconnected cover sensor only when the Pod reports it', () => {
     state.health = { status: 'ok', database: { status: 'ok' }, scheduler: {}, iptables: { ok: true } }
     const { rerender } = render(<Sidebar />, { wrapper })
-    // The shell keeps sensHealth subscribed on every page, not just System.
-    expect(subscription).toHaveBeenCalledWith({ sensors: ['sensHealth', 'capSense', 'capSense2'] })
+    // The Pod judges the cover, so the shell no longer streams sensor frames for it.
+    expect(subscription).not.toHaveBeenCalled()
     expect(screen.queryByTestId('footer-issues')).toBeNull()
     state.frames = { sensHealth: { type: 'sensHealth', ts: 1, version: 1, left: { connected: true }, right: { connected: true } } }
     rerender(<Sidebar />)

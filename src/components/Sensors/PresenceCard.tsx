@@ -6,6 +6,7 @@ import { useCallback, useState } from 'react'
 import { useSensorFrame, useOnSensorFrame } from '@/src/hooks/useSensorStream'
 import type { CapSenseFrame, CapSense2Frame, SensorFrame } from '@/src/hooks/useSensorStream'
 import { useSideNames } from '@/src/hooks/useSideNames'
+import { useCoverLink } from '@/src/components/Fork/useFork'
 import { trpc } from '@/src/utils/trpc'
 import { Card, SectionLabel, Skeleton, StatusDot } from '@/src/components/ds'
 
@@ -18,8 +19,9 @@ import { Card, SectionLabel, Skeleton, StatusDot } from '@/src/components/ds'
  * capSense channel variance — useful for seeing what the sensor is doing
  * right now, but NOT the source of truth for occupancy.
  *
- * Newer cover firmware sends sensHealth; a side it reports unlinked gets a
- * Disconnected dot. Without the frame (older firmware) nothing is added.
+ * Newer cover firmware sends sensHealth; a side it reports unlinked, and whose
+ * readings have stopped too, gets a Disconnected dot. The Pod makes that check.
+ * Without the frame (older firmware) nothing is added.
  */
 
 const VARIANCE_WINDOW = 20
@@ -58,7 +60,7 @@ export function PresenceCard() {
   const capSense = useSensorFrame('capSense')
   const capSense2 = useSensorFrame('capSense2')
   const frame: CapSenseFrame | CapSense2Frame | undefined = capSense2 ?? capSense
-  const sensHealth = useSensorFrame('sensHealth')
+  const sensHealth = useCoverLink()
   const { sideName } = useSideNames()
 
   const occupancyQuery = trpc.biometrics.getOccupancy.useQuery(undefined, {

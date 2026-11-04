@@ -7,6 +7,15 @@ export function useForkOverview(refetchInterval: number | false = 30_000) {
   return trpc.fork.overview.useQuery(undefined, { refetchInterval, staleTime: 10_000 })
 }
 
+/**
+ * The cover's health as the Pod judges it: the latest sensHealth frame, with a
+ * disconnect that the cover's own readings disprove turned off. Undefined on
+ * older firmware, which sends no sensHealth.
+ */
+export function useCoverLink() {
+  return trpc.fork.coverLink.useQuery(undefined, { staleTime: 10_000, refetchInterval: 30_000 }).data ?? undefined
+}
+
 export function useForkRefresh(): () => Promise<void> {
   const utils = trpc.useUtils()
   return async () => {
