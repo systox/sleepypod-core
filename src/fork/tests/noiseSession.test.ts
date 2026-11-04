@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   spawn: vi.fn(),
+  execFile: vi.fn(),
   occupied: { left: false as boolean | null, right: false as boolean | null },
   bedtimes: { left: null as number | null, right: null as number | null },
 }))
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof ChildProcess>()
-  return { ...actual, default: { ...actual, spawn: h.spawn }, spawn: h.spawn }
+  return { ...actual, default: { ...actual, spawn: h.spawn, execFile: h.execFile }, spawn: h.spawn, execFile: h.execFile }
 })
 vi.mock('@/src/temperature/instance', () => ({ getTemperatureController: () => ({ status: () => ({ blocked: null }) }) }))
 vi.mock('../presence/collector', () => ({
@@ -44,6 +45,9 @@ beforeEach(() => {
   closeStore()
   resetNoiseMemory()
   h.spawn.mockReset().mockImplementation(fakeChild)
+  h.execFile.mockReset().mockImplementation((_file: string, args: string[], _options: unknown, done: (error: Error | null, result?: unknown) => void) => {
+    done(null, { stdout: args[0] === 'list' ? 'Sink Input #6\n\t\tapplication.name = "sleepypod-noise"\n' : '', stderr: '' })
+  })
   h.occupied = { left: false, right: false }
   h.bedtimes = { left: null, right: null }
   runtime.running = true
@@ -92,6 +96,25 @@ describe('a white noise session', () => {
     h.occupied.left = false
     syncNoise(NOW + 3 * 60 * MIN)
     expect(noiseStatus().on).toBe(true)
+  })
+
+  it('changes the volume of the playing stream without restarting it', async () => {
+    setNoise(true, 'app', NOW)
+    setPodSettings({ noiseVolume: 50 })
+    syncNoise(NOW + 1_000)
+    await vi.waitFor(() => expect(h.execFile).toHaveBeenCalledWith('pactl', ['set-sink-input-volume', '6', '32768'], expect.anything(), expect.any(Function)))
+    expect(h.spawn).toHaveBeenCalledOnce()
+    syncNoise(NOW + 2_000)
+    expect(h.execFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('restarts the player at the new volume when its stream can\'t be reached', async () => {
+    h.execFile.mockImplementation((_file: string, _args: string[], _options: unknown, done: (error: Error | null) => void) => done(new Error('no pactl')))
+    setNoise(true, 'app', NOW)
+    setPodSettings({ noiseVolume: 50 })
+    syncNoise(NOW + 1_000)
+    await vi.waitFor(() => expect(h.spawn).toHaveBeenCalledTimes(2))
+    expect(h.spawn.mock.calls[1][1][1]).toContain('--volume=32768')
   })
 
   it('stays silent at zero volume', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dueBedtimes, endReason, noiseCommand } from '../noise'
+import { dueBedtimes, endReason, noiseCommand, playerStreams } from '../noise'
 import { actionFor, gestureOf } from '../middleButton'
 
 const MIN = 60_000
@@ -65,5 +65,15 @@ describe('the player', () => {
     const command = noiseCommand({ noiseColor: 'brown', noiseVolume: 50 })
     expect(command).toContain('anoisesrc=color=brown')
     expect(command).toContain('--volume=32768')
+    expect(command).toContain('--client-name=sleepypod-noise')
+  })
+
+  it('finds its own streams in the PulseAudio listing', () => {
+    const listing = [
+      'Sink Input #3', '\tVolume: front-left: 0', '\tProperties:', '\t\tapplication.name = "other-app"',
+      'Sink Input #6', '\tProperties:', '\t\tapplication.name = "sleepypod-noise"',
+    ].join('\n')
+    expect(playerStreams(listing)).toEqual(['6'])
+    expect(playerStreams('')).toEqual([])
   })
 })

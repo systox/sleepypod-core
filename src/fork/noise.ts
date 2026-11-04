@@ -3,9 +3,11 @@
  * ffmpeg generates it and paplay plays it. A session starts from the app, the
  * web page, a middle-button press, or at bedtime when that's switched on. It
  * ends when the bed has been empty a while, at its longest length, or when
- * someone stops it.
+ * someone stops it. A volume change reaches the playing stream directly, so
+ * the sound doesn't break.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { Side } from '@/src/hardware/types'
 import { presenceOf, sensorsFresh } from './presence/collector'
 import type { ForkPodSettings } from './settings'
@@ -15,6 +17,10 @@ import { logEvent, readKey, removeKey, writeKey } from './store'
 
 const MINUTE = 60_000
 const PAPLAY_FULL = 65536
+/** The player's name in PulseAudio, so a volume change finds its stream. */
+export const NOISE_CLIENT = 'sleepypod-noise'
+const PACTL_TIMEOUT_MS = 5_000
+const execFileAsync = promisify(execFile)
 /** A player that keeps failing is retried this often, not every tick. */
 const RETRY_MS = 5 * MINUTE
 /** A bedtime missed by longer than this, say while the Pod was off, doesn't start noise late. */
@@ -36,7 +42,10 @@ interface NoiseSession {
 
 interface NoiseState {
   child: ChildProcess | null
+  /** The sound the running player makes. Volume isn't part of it: that changes in place. */
   key: string | null
+  /** The volume, 0 to 100, last sent to the running player. */
+  volume: number | null
   problem: string | null
   failedKey: string | null
   failedAt: number
@@ -48,17 +57,59 @@ interface NoiseState {
 
 const globalNoise = globalThis as typeof globalThis & { __sp_forkNoise?: NoiseState }
 const state: NoiseState = globalNoise.__sp_forkNoise ??= {
-  child: null, key: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0,
+  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0,
 }
 
 type NoiseSound = Pick<ForkPodSettings, 'noiseColor' | 'noiseVolume'>
 type NoiseTiming = Pick<ForkPodSettings, 'noiseWaitMinutes' | 'noiseEmptyMinutes' | 'noiseMaxHours'>
 
+/** PulseAudio's volume scale, where 65536 is full. */
+function paVolume(volume: number): number {
+  return Math.round(Math.max(0, Math.min(100, volume)) / 100 * PAPLAY_FULL)
+}
+
 /** The shell pipeline. Colour and volume come from validated settings only. */
 export function noiseCommand(pod: NoiseSound): string {
-  const volume = Math.round(Math.max(0, Math.min(100, pod.noiseVolume)) / 100 * PAPLAY_FULL)
   return `ffmpeg -nostdin -loglevel error -f lavfi -i anoisesrc=color=${pod.noiseColor}:amplitude=0.5 -f s16le -ac 2 -ar 44100 - `
-    + `| paplay --raw --rate=44100 --channels=2 --format=s16le --volume=${volume}`
+    + `| paplay --raw --rate=44100 --channels=2 --format=s16le --volume=${paVolume(pod.noiseVolume)} --client-name=${NOISE_CLIENT}`
+}
+
+/** The PulseAudio streams the player owns, read from `pactl list sink-inputs`. */
+export function playerStreams(listing: string): string[] {
+  const streams: string[] = []
+  let index: string | null = null
+  for (const line of listing.split('\n')) {
+    const head = /^Sink Input #(\d+)/.exec(line)
+    if (head) index = head[1]
+    else if (index !== null && line.trim() === `application.name = "${NOISE_CLIENT}"`) streams.push(index)
+  }
+  return streams
+}
+
+let volumeQueue: Promise<void> = Promise.resolve()
+
+/**
+ * Set the running player's volume without restarting it. Changes run one at
+ * a time and each sends the latest volume, so a quick run of them settles on
+ * the last. If the stream can't be reached, the player restarts at the new
+ * volume instead.
+ */
+function changeVolume(volume: number): void {
+  state.volume = volume
+  const child = state.child
+  volumeQueue = volumeQueue.then(async () => {
+    if (state.child !== child || state.volume === null) return
+    const { stdout } = await execFileAsync('pactl', ['list', 'sink-inputs'], { timeout: PACTL_TIMEOUT_MS })
+    const streams = playerStreams(stdout)
+    if (streams.length === 0) throw new Error('the player has no stream yet')
+    const level = String(paVolume(state.volume))
+    for (const stream of streams) await execFileAsync('pactl', ['set-sink-input-volume', stream, level], { timeout: PACTL_TIMEOUT_MS })
+  }).catch((error) => {
+    if (state.child !== child) return
+    console.warn('[fork] white noise volume change failed, restarting the player:', error instanceof Error ? error.message : error)
+    stopNoise()
+    syncNoise()
+  })
 }
 
 /**
@@ -124,6 +175,7 @@ export function stopNoise(): void {
   const child = state.child
   state.child = null
   state.key = null
+  state.volume = null
   if (child?.pid) {
     try {
       process.kill(-child.pid, 'SIGTERM')
@@ -134,7 +186,7 @@ export function stopNoise(): void {
   }
 }
 
-function start(command: string): void {
+function start(command: string, key: string, volume: number): void {
   const child = spawn('sh', ['-c', command], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
   let lastError = ''
   child.stderr?.on('data', (chunk: Buffer) => {
@@ -156,9 +208,10 @@ function start(command: string): void {
     failed(null)
   })
   child.on('exit', failed)
-  if (state.failedKey !== command) state.problem = null
+  if (state.failedKey !== key) state.problem = null
   state.child = child
-  state.key = command
+  state.key = key
+  state.volume = volume
   state.childStartedAt = Date.now()
 }
 
@@ -197,14 +250,15 @@ export function syncNoise(now = Date.now()): void {
     stopNoise()
     return
   }
-  const command = noiseCommand(pod)
-  if (state.child && state.key === command) {
+  const key = pod.noiseColor
+  if (state.child && state.key === key) {
+    if (state.volume !== pod.noiseVolume) changeVolume(pod.noiseVolume)
     if (state.problem && now - state.childStartedAt >= SETTLED_MS) state.problem = null
     return
   }
-  if (state.failedKey === command && now - state.failedAt < RETRY_MS) return
+  if (state.failedKey === key && now - state.failedAt < RETRY_MS) return
   stopNoise()
-  start(command)
+  start(noiseCommand(pod), key, pod.noiseVolume)
 }
 
 export function noiseStatus(): { on: boolean, playing: boolean, reason: NoiseReason | null, since: number | null, problem: string | null } {
