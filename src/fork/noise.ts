@@ -6,7 +6,7 @@
  * someone stops it. A volume change reaches the playing stream directly, so
  * the sound doesn't break.
  */
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Side } from '@/src/hardware/types'
 import { presenceOf, sensorsFresh } from './presence/collector'
@@ -273,6 +273,14 @@ export function resetNoiseMemory(): void {
   state.occupiedAt = null
   state.problem = null
   state.failedKey = null
+}
+
+/**
+ * Stops a player left by an earlier run of the service. The player runs in its
+ * own process group, so a crash leaves it playing with nothing to stop it.
+ */
+export function stopLeftoverPlayers(): void {
+  spawnSync('pkill', ['-f', `client-name=${NOISE_CLIENT}`], { stdio: 'ignore', timeout: PACTL_TIMEOUT_MS })
 }
 
 /** Clears a stored session, so an old one can't restart noise after a long outage. */
