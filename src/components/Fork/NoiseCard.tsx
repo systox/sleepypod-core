@@ -40,22 +40,28 @@ const GESTURES = [
 const STARTED_BY: Record<NoiseReason, string> = {
   'app': 'from the app',
   'button': 'from the middle button',
-  'bedtime': 'at the curve\'s start time',
+  'bedtime': 'for bed hours',
   'smart-start': 'as someone got into bed',
-  'return': 'as someone got back into bed',
 }
-const STARTS = [
-  { value: 'off', label: 'Off' },
-  { value: 'clock', label: 'At the curve\'s start time' },
-  { value: 'smart', label: 'When someone gets into bed (Smart start)' },
+const TRIGGERS = [
+  { value: 'off', label: 'Manual' },
+  { value: 'clock', label: 'Scheduled' },
+  { value: 'smart', label: 'Smart' },
 ] as const
 
-/** What the chosen way of starting does, in a sentence. */
-export function startLine(start: ForkPodSettings['noiseStart'], detection: ForkPodSettings['detection']): string {
-  if (start === 'off') return 'Starts only from Play or the middle button.'
-  if (start === 'clock') return 'Starts at the curve\'s start time, even if nobody is in bed yet.'
-  if (detection !== 'live') return 'Starts at the curve\'s start time for now: starting when someone gets into bed needs Detection set to Live in Tonight settings.'
-  return 'Starts as Smart start begins someone\'s curve, a few minutes after they get into bed, even if Reading mode holds the curve until its start time. A sleeper without Smart start gets it at the curve\'s start time. Smart start is set per sleeper on the Schedule page.'
+/** What the trigger does. Manual needs no words. */
+export function triggerLine(pod: Pick<ForkPodSettings, 'noiseStart' | 'detection' | 'noiseMaxHours'>, minutes: string): string {
+  if (pod.noiseStart === 'off') return ''
+  if (pod.noiseStart === 'clock') return 'Runs during bed hours.'
+  const live = pod.detection === 'live' ? '' : ' Needs Detection set to Live in Tonight settings.'
+  return `Starts ${minutes} minutes after you get into bed. Pauses and resumes with presence detection. Maximum ${pod.noiseMaxHours} hours.${live}`
+}
+
+/** The Smart start minutes of the sleepers whose bedtimes count, as one number or a range. */
+export function minutesToStart(values: number[]): string {
+  const low = Math.min(...values)
+  const high = Math.max(...values)
+  return low === high ? `${low}` : `${low} to ${high}`
 }
 
 function useSetNoise() {
@@ -135,7 +141,7 @@ export function NoiseQuickToggle({ className, style }: { className?: string, sty
 }
 
 /** White noise from the base's speaker. One speaker, so one setting for the bed. */
-export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: NoiseView, names: Record<Side, string> }) {
+export function NoiseCard({ pod, noise, names, minutes }: { pod: ForkPodSettings, noise: NoiseView, names: Record<Side, string>, minutes: string }) {
   const refresh = useForkRefresh()
   const timeFormat = useTimeFormat()
   const save = trpc.fork.setPodSettings.useMutation({ onSuccess: refresh })
@@ -156,7 +162,7 @@ export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: 
           </Button>
         </div>
         <span className="text-[13px] text-fg-2">
-          {`It stops once the bed has been empty ${pod.noiseEmptyMinutes} minutes, or after ${pod.noiseMaxHours} hours.`}
+          {noise.reason === 'bedtime' ? 'It stops when bed hours end.' : `It stops once the bed has been empty ${pod.noiseEmptyMinutes} minutes, or after ${pod.noiseMaxHours} hours.`}
         </span>
         {noise.problem && <InlineError>{noise.problem}</InlineError>}
         <SettingRow label="Sound">
@@ -174,18 +180,17 @@ export function NoiseCard({ pod, noise, names }: { pod: ForkPodSettings, noise: 
       <Card className="gap-2.5">
         <SettingRow
           divider={false}
-          label="Start white noise"
-          sub={`${startLine(pod.noiseStart, pod.detection)}${pod.noiseStart === 'off' ? '' : ' If the bed has been empty long enough to stop it, it starts again when a sleeper gets back into their side while their curve runs, unless someone stopped it by hand that night.'}`}
-          className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center"
+          label="Trigger"
+          sub={triggerLine(pod, minutes) || undefined}
         >
-          <SelectValue label="Start white noise" value={pod.noiseStart} options={[...STARTS]} onChange={noiseStart => save.mutate({ patch: { noiseStart } })} />
+          <SelectValue label="Trigger" value={pod.noiseStart} options={[...TRIGGERS]} onChange={noiseStart => save.mutate({ patch: { noiseStart } })} />
         </SettingRow>
         {pod.noiseStart !== 'off' && (
           <SettingRow label="Whose curve" sub="Anyone away is left out.">
             <SelectValue label="Whose curve" value={pod.noiseSide} options={[...sides]} onChange={noiseSide => save.mutate({ patch: { noiseSide } })} />
           </SettingRow>
         )}
-        <SettingRow label="Waits for someone to get in, minutes" sub="For noise that starts with nobody in bed, at the curve's start time or from Play or the middle button. After that, it stops once the bed has been empty for the time below.">
+        <SettingRow label="Waits for someone to get in, minutes" sub="When started by hand with nobody in bed.">
           <NumberField label="Waits for someone to get in, minutes" value={pod.noiseWaitMinutes} step={5} onSave={noiseWaitMinutes => save.mutate({ patch: { noiseWaitMinutes } })} />
         </SettingRow>
         <SettingRow label="Stops once everyone is out of bed for, minutes">
@@ -218,7 +223,12 @@ export function NoiseSection() {
   return (
     <section className="mt-4 flex flex-col gap-2.5" aria-label="White noise">
       <SectionLabel>White noise</SectionLabel>
-      <NoiseCard pod={data.pod} noise={data.noise} names={{ left: leftName, right: rightName }} />
+      <NoiseCard
+        pod={data.pod}
+        noise={data.noise}
+        names={{ left: leftName, right: rightName }}
+        minutes={minutesToStart((data.pod.noiseSide === 'either' ? ['left', 'right'] as const : [data.pod.noiseSide]).map(side => data[side].settings.minutesToCall))}
+      />
     </section>
   )
 }

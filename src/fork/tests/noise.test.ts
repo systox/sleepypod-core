@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dueBedtimes, endReason, noiseCommand, noiseSides, playerStreams } from '../noise'
+import { endReason, noiseCommand, noiseSides, playerStreams } from '../noise'
 import { actionFor, gestureOf } from '../middleButton'
 
 const MIN = 60_000
@@ -7,7 +7,7 @@ const NOW = 1_800_000_000_000
 const timing = { noiseWaitMinutes: 60, noiseEmptyMinutes: 10, noiseMaxHours: 12 }
 
 describe('when white noise ends', () => {
-  const session = { reason: 'bedtime' as const, startedAt: NOW }
+  const session = { reason: 'app' as const, startedAt: NOW }
 
   it('waits for someone when it starts on an empty bed', () => {
     expect(endReason(session, timing, NOW + 30 * MIN, { empty: true, occupiedAt: null })).toBeNull()
@@ -27,23 +27,15 @@ describe('when white noise ends', () => {
   })
 })
 
-describe('the bedtime that starts it', () => {
-  const bedtimes = { left: NOW - 5 * MIN, right: NOW - 20 * MIN }
-
+describe('whose curve counts', () => {
   it('uses the chosen side, or both sides for whoever goes first', () => {
-    expect(dueBedtimes(noiseSides({ noiseSide: 'left' }, ['left', 'right']), NOW, side => bedtimes[side])).toEqual([bedtimes.left])
-    expect(dueBedtimes(noiseSides({ noiseSide: 'either' }, ['left', 'right']), NOW, side => bedtimes[side])).toEqual([bedtimes.left, bedtimes.right])
+    expect(noiseSides({ noiseSide: 'left' }, ['left', 'right'])).toEqual(['left'])
+    expect(noiseSides({ noiseSide: 'either' }, ['left', 'right'])).toEqual(['left', 'right'])
   })
 
   it('leaves out a sleeper who is away', () => {
     expect(noiseSides({ noiseSide: 'either' }, ['right'])).toEqual(['right'])
     expect(noiseSides({ noiseSide: 'left' }, ['right'])).toEqual([])
-  })
-
-  it('ignores a bedtime still to come or long missed', () => {
-    expect(dueBedtimes(['left'], NOW, () => NOW + MIN)).toEqual([])
-    expect(dueBedtimes(['left'], NOW, () => NOW - 2 * 60 * MIN)).toEqual([])
-    expect(dueBedtimes(['right'], NOW, () => null)).toEqual([])
   })
 })
 

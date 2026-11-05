@@ -70,27 +70,38 @@ describe('the Temp screen noise button', () => {
 })
 
 describe('the white noise section of the Temp screen', () => {
-  it('offers every sound, the curve start, the empty-bed stop and the fade', () => {
-    h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({ on: false, playing: false }) }
+  const sides = (left: number, right: number) => ({ left: { settings: { minutesToCall: left } }, right: { settings: { minutesToCall: right } } })
+
+  it('offers every sound, the trigger, the empty-bed stop and the fade', () => {
+    h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({ on: false, playing: false }), ...sides(5, 5) }
     render(<NoiseSection />)
     expect(screen.getByRole('region', { name: 'White noise' })).toBeTruthy()
-    expect(screen.getByText('Start white noise')).toBeTruthy()
+    expect(screen.getByText('Trigger')).toBeTruthy()
     expect(screen.getByText('Stops once everyone is out of bed for, minutes')).toBeTruthy()
     expect(screen.getByText('Fades in and out over, seconds')).toBeTruthy()
-    // Off by default: whose curve only matters once it starts by itself. The wait still covers Play with nobody in bed.
+    // Manual by default: whose curve only matters once it starts by itself. The wait still covers Play with nobody in bed.
     expect(screen.queryByText('Whose curve')).toBeNull()
     expect(screen.getByText('Waits for someone to get in, minutes')).toBeTruthy()
   })
 
-  it('says Smart start needs Detection set to Live, and what it does once it is', () => {
-    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart' }, noise: noise({ on: false, playing: false }) }
-    const { unmount } = render(<NoiseSection />)
+  it('says what Scheduled and Smart do, with the sleepers\' minutes, and when Smart needs Detection on Live', () => {
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'clock' }, noise: noise({ on: false, playing: false }), ...sides(5, 5) }
+    const first = render(<NoiseSection />)
     expect(screen.getByText('Whose curve')).toBeTruthy()
-    expect(screen.getByText('Waits for someone to get in, minutes')).toBeTruthy()
-    expect(screen.getByText(/^Starts at the curve's start time for now: starting when someone gets into bed needs Detection set to Live/)).toBeTruthy()
-    unmount()
-    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart', detection: 'live' }, noise: noise({ on: false, playing: false }) }
+    expect(screen.getByText('Runs during bed hours.')).toBeTruthy()
+    first.unmount()
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart', detection: 'live' }, noise: noise({ on: false, playing: false }), ...sides(5, 5) }
+    const second = render(<NoiseSection />)
+    expect(screen.getByText('Starts 5 minutes after you get into bed. Pauses and resumes with presence detection. Maximum 12 hours.')).toBeTruthy()
+    second.unmount()
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'smart', noiseSide: 'either' }, noise: noise({ on: false, playing: false }), ...sides(5, 8) }
     render(<NoiseSection />)
-    expect(screen.getByText(/^Starts as Smart start begins someone's curve, a few minutes after they get into bed/)).toBeTruthy()
+    expect(screen.getByText(/^Starts 5 to 8 minutes after you get into bed\..* Needs Detection set to Live in Tonight settings\.$/)).toBeTruthy()
+  })
+
+  it('says Scheduled noise stops when bed hours end', () => {
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseStart: 'clock' }, noise: noise({ reason: 'bedtime' }), ...sides(5, 5) }
+    render(<NoiseSection />)
+    expect(screen.getByText('It stops when bed hours end.')).toBeTruthy()
   })
 })

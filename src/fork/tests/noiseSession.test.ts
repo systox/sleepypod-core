@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   spawn: vi.fn(),
   execFile: vi.fn(),
   occupied: { left: false as boolean | null, right: false as boolean | null },
+  since: { left: null as number | null, right: null as number | null },
   bedtimes: { left: null as number | null, right: null as number | null },
   away: { left: false, right: false },
   runs: { left: { phase: 'idle', startedAt: null }, right: { phase: 'idle', startedAt: null } } as Record<'left' | 'right', { phase: string, startedAt: number | null }>,
@@ -19,7 +20,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 vi.mock('@/src/temperature/instance', () => ({ getTemperatureController: () => ({ status: () => ({ blocked: null }) }) }))
 vi.mock('../presence/collector', () => ({
-  presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: null }),
+  presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side] }),
   sensorsFresh: () => true,
 }))
 vi.mock('../smart/following', () => ({
@@ -43,11 +44,21 @@ function resetNoiseMemoryKeepingStore(): void {
   resetNoiseMemory()
 }
 import { runtime } from '../runtime'
-import { setPodSettings, setSideSettings } from '../settings'
+import { setPodSettings } from '../settings'
 import { closeStore, listEvents } from '../store'
 
 const MIN = 60_000
 const NOW = 1_800_000_000_000
+
+function inBed(side: 'left' | 'right', at: number): void {
+  h.occupied[side] = true
+  h.since[side] = at
+}
+
+function outOfBed(side: 'left' | 'right', at: number): void {
+  h.occupied[side] = false
+  h.since[side] = at
+}
 
 function fakeChild() {
   return { pid: undefined, on: vi.fn(), stderr: { on: vi.fn() }, kill: vi.fn() }
@@ -62,6 +73,7 @@ beforeEach(() => {
     done(null, { stdout: args[0] === 'list' ? 'Sink Input #6\n\t\tapplication.name = "sleepypod-noise"\n' : '', stderr: '' })
   })
   h.occupied = { left: false, right: false }
+  h.since = { left: null, right: null }
   h.bedtimes = { left: null, right: null }
   h.away = { left: false, right: false }
   h.runs = { left: { phase: 'idle', startedAt: null }, right: { phase: 'idle', startedAt: null } }
@@ -93,171 +105,53 @@ describe('a white noise session', () => {
     expect(listEvents(0, NOW + 60 * MIN, ['noise-stop'])).toHaveLength(1)
   })
 
-  it('starts once at bedtime, and not again after a stop when the other side\'s bedtime passes', () => {
+  it('Scheduled plays through bed hours whoever is in bed, and stops when they end', () => {
     setPodSettings({ noiseStart: 'clock', noiseSide: 'either' })
-    h.bedtimes = { left: NOW - MIN, right: null }
+    h.bedtimes = { left: NOW, right: null }
     syncNoise(NOW)
     expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
-    setNoise(false, 'app', NOW + 10 * MIN)
-    h.bedtimes = { left: null, right: NOW + 20 * MIN }
-    syncNoise(NOW + 30 * MIN)
+    syncNoise(NOW + 3 * 60 * MIN)
+    expect(noiseStatus().on).toBe(true)
+    h.occupied.left = true
+    syncNoise(NOW + 4 * 60 * MIN)
+    h.occupied.left = false
+    syncNoise(NOW + 5 * 60 * MIN)
+    expect(noiseStatus().on).toBe(true)
+    syncNoise(NOW + 8 * 60 * MIN)
     expect(noiseStatus().on).toBe(false)
+    expect(listEvents(0, NOW + 9 * 60 * MIN, ['noise-stop'])[0].detail).toContain('bed hours over')
   })
 
-  it('skips an away sleeper\'s bedtime when either side can start it', () => {
+  it('Scheduled starts part way through bed hours, after a restart say', () => {
+    setPodSettings({ noiseStart: 'clock', noiseSide: 'left' })
+    h.bedtimes = { left: NOW - 3 * 60 * MIN, right: null }
+    syncNoise(NOW)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
+  })
+
+  it('Scheduled skips an away sleeper\'s bed hours when either side counts', () => {
     setPodSettings({ noiseStart: 'clock', noiseSide: 'either' })
     h.away.left = true
     h.bedtimes = { left: NOW - MIN, right: NOW + 30 * MIN }
     syncNoise(NOW)
     expect(noiseStatus().on).toBe(false)
-    h.bedtimes = { left: NOW - 31 * MIN, right: NOW - MIN }
-    syncNoise(NOW + 30 * MIN)
+    syncNoise(NOW + 31 * MIN)
     expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
   })
 
-  it('with Smart start, waits for someone to get in rather than the start time', () => {
-    setPodSettings({ noiseStart: 'smart', noiseSide: 'either', detection: 'live' })
-    setSideSettings('right', { smartStart: true })
-    h.away.left = true
-    h.bedtimes = { left: null, right: NOW - MIN }
-    syncNoise(NOW)
-    expect(noiseStatus().on).toBe(false)
-    h.occupied.right = true
-    h.runs.right = { phase: 'running', startedAt: NOW + 5 * MIN }
-    syncNoise(NOW + 5 * MIN)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
-  })
-
-  it('starts with a Reading mode hold, and once per run', () => {
-    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
-    setSideSettings('right', { smartStart: true })
-    h.occupied.right = true
-    h.runs.right = { phase: 'reading', startedAt: NOW }
-    syncNoise(NOW)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
-    setNoise(false, 'app', NOW + MIN)
-    h.runs.right = { phase: 'running', startedAt: NOW }
-    syncNoise(NOW + 2 * MIN)
-    expect(noiseStatus().on).toBe(false)
-  })
-
-  it('uses the start time for a sleeper without Smart start', () => {
-    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
-    h.bedtimes = { left: null, right: NOW - MIN }
-    syncNoise(NOW)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
-  })
-
-  it('doesn\'t start for a run already well under way when the service starts', () => {
-    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
-    setSideSettings('right', { smartStart: true })
-    h.occupied.right = true
-    h.runs.right = { phase: 'running', startedAt: NOW - 2 * 60 * MIN }
-    syncNoise(NOW)
-    expect(noiseStatus().on).toBe(false)
-  })
-
-  it('starts again when someone gets back into bed while the curve runs', () => {
-    setPodSettings({ noiseStart: 'clock', noiseSide: 'either' })
-    h.bedtimes = { left: NOW, right: null }
-    h.occupied.left = true
-    syncNoise(NOW)
-    h.occupied.left = false
-    syncNoise(NOW + 11 * MIN)
-    expect(noiseStatus().on).toBe(false)
-    h.occupied.left = true
-    syncNoise(NOW + 20 * MIN)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'return' })
-  })
-
-  it('starts again after the watch hours close, while a long curve still runs', () => {
-    setPodSettings({ noiseStart: 'clock', noiseSide: 'left' })
-    h.bedtimes = { left: NOW, right: null }
-    h.occupied.left = true
-    syncNoise(NOW)
-    syncNoise(NOW + 7 * 60 * MIN)
-    h.occupied.left = false
-    syncNoise(NOW + 7 * 60 * MIN + 11 * MIN)
-    expect(noiseStatus().on).toBe(false)
-    h.occupied.left = true
-    syncNoise(NOW + 7 * 60 * MIN + 20 * MIN)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'return' })
-  })
-
-  it('doesn\'t start again for a stop from an earlier night', () => {
-    setPodSettings({ noiseStart: 'clock', noiseSide: 'right', detection: 'live' })
-    setSideSettings('right', { smartStart: true })
-    h.occupied.right = true
-    setNoise(true, 'app', NOW - 15 * 60 * MIN)
-    h.occupied.right = false
-    syncNoise(NOW - 15 * 60 * MIN + 11 * MIN)
-    expect(noiseStatus().on).toBe(false)
-    // Tonight Smart start begins the curve early; the start-time setting waits for the start time.
-    h.bedtimes = { left: null, right: NOW + 45 * MIN }
-    h.occupied.right = true
-    h.runs.right = { phase: 'running', startedAt: NOW }
-    syncNoise(NOW)
-    expect(noiseStatus().on).toBe(false)
-    syncNoise(NOW + 46 * MIN)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
-  })
-
-  it('starts again only for a sleeper back on their own side', () => {
-    setPodSettings({ noiseStart: 'clock', noiseSide: 'right' })
-    h.bedtimes = { left: null, right: NOW }
-    h.occupied.right = true
-    syncNoise(NOW)
-    h.occupied.right = false
-    syncNoise(NOW + 11 * MIN)
-    h.occupied.left = true
-    syncNoise(NOW + 20 * MIN)
-    expect(noiseStatus().on).toBe(false)
-    h.occupied.right = true
-    syncNoise(NOW + 25 * MIN)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'return' })
-  })
-
-  it('doesn\'t start again after the curve has ended', () => {
-    setPodSettings({ noiseStart: 'clock', noiseSide: 'either' })
-    h.bedtimes = { left: NOW, right: null }
-    h.occupied.left = true
-    syncNoise(NOW)
-    h.occupied.left = false
-    syncNoise(NOW + 11 * MIN)
-    h.occupied.left = true
-    syncNoise(NOW + 9 * 60 * MIN)
-    expect(noiseStatus().on).toBe(false)
-  })
-
-  it('never starts by itself again that night after a stop by hand', () => {
+  it('Scheduled stays off for the night after a stop by hand, and plays the next night', () => {
     setPodSettings({ noiseStart: 'clock', noiseSide: 'either' })
     h.bedtimes = { left: NOW, right: NOW + 30 * MIN }
-    h.occupied.left = true
     syncNoise(NOW)
     setNoise(false, 'button', NOW + 5 * MIN)
-    h.occupied.left = false
-    syncNoise(NOW + 20 * MIN)
-    h.occupied.left = true
     syncNoise(NOW + 40 * MIN)
     expect(noiseStatus().on).toBe(false)
+    h.bedtimes = { left: NOW + 24 * 60 * MIN, right: null }
+    syncNoise(NOW + 24 * 60 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
   })
 
-  it('starts again on getting back in when someone started it by hand after their stop', () => {
-    setPodSettings({ noiseStart: 'clock', noiseSide: 'either' })
-    h.bedtimes = { left: NOW, right: null }
-    h.occupied.left = true
-    syncNoise(NOW)
-    setNoise(false, 'button', NOW + 5 * MIN)
-    setNoise(true, 'app', NOW + 6 * MIN)
-    h.occupied.left = false
-    syncNoise(NOW + 17 * MIN)
-    expect(noiseStatus().on).toBe(false)
-    h.occupied.left = true
-    syncNoise(NOW + 25 * MIN)
-    expect(noiseStatus()).toMatchObject({ on: true, reason: 'return' })
-  })
-
-  it('still starts at the start time after a stop by hand earlier in the evening', () => {
+  it('Scheduled still plays after a stop by hand earlier in the evening', () => {
     setPodSettings({ noiseStart: 'clock', noiseSide: 'left' })
     setNoise(true, 'app', NOW - 3 * 60 * MIN)
     setNoise(false, 'app', NOW - 2 * 60 * MIN)
@@ -266,8 +160,138 @@ describe('a white noise session', () => {
     expect(noiseStatus()).toMatchObject({ on: true, reason: 'bedtime' })
   })
 
+  it('bed hours hold noise started by hand, which then ends as noise by hand does', () => {
+    setPodSettings({ noiseStart: 'clock', noiseSide: 'left' })
+    setNoise(true, 'app', NOW - 30 * MIN)
+    h.bedtimes = { left: NOW, right: null }
+    syncNoise(NOW + 2 * 60 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'app' })
+    syncNoise(NOW + 8 * 60 * MIN)
+    expect(noiseStatus().on).toBe(false)
+  })
+
+  it('Smart starts once a sleeper has been in their side their Smart start minutes', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'either', detection: 'live' })
+    h.away.left = true
+    h.bedtimes = { left: NOW, right: NOW }
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+    inBed('left', NOW)
+    syncNoise(NOW + 10 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    inBed('right', NOW + 10 * MIN)
+    syncNoise(NOW + 14 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    syncNoise(NOW + 15 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
+  })
+
+  it('Smart waits for the night, and needs Detection on Live', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW + 5 * 60 * MIN }
+    inBed('right', NOW - 10 * MIN)
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+    h.bedtimes = { left: null, right: NOW }
+    setPodSettings({ detection: 'watch' })
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+    setPodSettings({ detection: 'live' })
+    syncNoise(NOW)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
+  })
+
+  it('Smart pauses on an empty bed and resumes once someone is back for their minutes', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(true)
+    outOfBed('right', NOW + MIN)
+    syncNoise(NOW + 11 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    inBed('right', NOW + 20 * MIN)
+    syncNoise(NOW + 24 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    syncNoise(NOW + 25 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
+  })
+
+  it('Smart starts only for a sleeper on a side that counts', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: NOW, right: NOW }
+    inBed('left', NOW - 10 * MIN)
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(true)
+  })
+
+  it('Smart doesn\'t start again for someone in bed since it reached its longest length', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live', noiseMaxHours: 1 })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    syncNoise(NOW + 60 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    syncNoise(NOW + 70 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    inBed('right', NOW + 80 * MIN)
+    syncNoise(NOW + 85 * MIN)
+    expect(noiseStatus().on).toBe(true)
+  })
+
+  it('Smart resumes while Smart start still runs the curve past its set end', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW - 9 * 60 * MIN }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+    h.runs.right = { phase: 'running', startedAt: NOW - 9 * 60 * MIN }
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(true)
+  })
+
+  it('Smart never starts by itself again that night after a stop by hand', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    setNoise(false, 'button', NOW + 5 * MIN)
+    outOfBed('right', NOW + 6 * MIN)
+    inBed('right', NOW + 20 * MIN)
+    syncNoise(NOW + 40 * MIN)
+    expect(noiseStatus().on).toBe(false)
+  })
+
+  it('Smart resumes on getting back in when someone started it by hand after their stop', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    setNoise(false, 'button', NOW + 5 * MIN)
+    setNoise(true, 'app', NOW + 6 * MIN)
+    outOfBed('right', NOW + 7 * MIN)
+    syncNoise(NOW + 17 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    inBed('right', NOW + 20 * MIN)
+    syncNoise(NOW + 25 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
+  })
+
+  it('Smart doesn\'t start after the night is over', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW - 9 * 60 * MIN }
+    inBed('right', NOW - 10 * MIN)
+    syncNoise(NOW)
+    expect(noiseStatus().on).toBe(false)
+  })
+
   it('fades in from silence when it starts by itself, but not from Play', async () => {
     vi.useFakeTimers()
+    // The fade's last check reads the clock, which must still be in bed hours.
+    vi.setSystemTime(NOW)
     setPodSettings({ noiseStart: 'clock', noiseSide: 'left', noiseVolume: 60, noiseFadeSeconds: 3 })
     h.bedtimes = { left: NOW, right: null }
     syncNoise(NOW)
