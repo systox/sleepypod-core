@@ -95,10 +95,10 @@ describe('a white noise session', () => {
   })
 
   it('ends by itself once the bed has been empty a while after someone was in it', () => {
-    h.occupied.left = true
+    inBed('left', NOW - 30 * MIN)
     setNoise(true, 'app', NOW)
-    h.occupied.left = false
-    syncNoise(NOW + 9 * MIN)
+    outOfBed('left', NOW + MIN)
+    syncNoise(NOW + 10 * MIN)
     expect(noiseStatus().on).toBe(true)
     syncNoise(NOW + 11 * MIN)
     expect(noiseStatus().on).toBe(false)
@@ -217,6 +217,20 @@ describe('a white noise session', () => {
     expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
   })
 
+  it('Smart pauses the set minutes after the sleeper got up, though presence calls it late', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    // Up at NOW + 1 minute, but presence still reads her in until NOW + 6, then dates the exit back.
+    syncNoise(NOW + 5 * MIN)
+    outOfBed('right', NOW + MIN)
+    syncNoise(NOW + 10 * MIN)
+    expect(noiseStatus().on).toBe(true)
+    syncNoise(NOW + 11 * MIN)
+    expect(noiseStatus().on).toBe(false)
+  })
+
   it('Smart starts only for a sleeper on a side that counts', () => {
     setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
     h.bedtimes = { left: NOW, right: NOW }
@@ -308,13 +322,15 @@ describe('a white noise session', () => {
     expect(h.spawn.mock.calls[1][1][1]).toContain('--volume=39322 ')
   })
 
-  it('gives an empty bed its full grace after a restart', () => {
-    h.occupied.left = true
+  it('counts an empty bed from when the sleeper got up, across a restart', () => {
+    inBed('left', NOW - 30 * MIN)
     setNoise(true, 'app', NOW)
     resetNoiseMemoryKeepingStore()
-    h.occupied.left = false
+    outOfBed('left', NOW + 3 * 60 * MIN - 5 * MIN)
     syncNoise(NOW + 3 * 60 * MIN)
     expect(noiseStatus().on).toBe(true)
+    syncNoise(NOW + 3 * 60 * MIN + 5 * MIN)
+    expect(noiseStatus().on).toBe(false)
   })
 
   it('changes the volume of the playing stream without restarting it', async () => {

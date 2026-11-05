@@ -62,6 +62,7 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
     elapsedMs: now - (lastTick[side] ?? now),
     settings,
     occupied: sensorsFresh(now) ? presence.occupied : null,
+    leftAt: presence.occupied === false ? presence.since : null,
     enteredAt: entry?.at ?? null,
     movedAcross: entry?.movedAcross ?? false,
     otherOpenAndEmpty: otherRun.phase === 'running' && otherPresence.occupied === false,

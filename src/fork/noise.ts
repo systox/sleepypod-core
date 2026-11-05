@@ -63,8 +63,6 @@ interface NoiseState {
   problem: string | null
   failedKey: string | null
   failedAt: number
-  /** Kept in memory only: it changes every tick someone is in bed. */
-  occupiedAt: number | null
   session: NoiseSession | null | undefined
   childStartedAt: number
   /** A player whose session has ended, fading out before it is stopped. */
@@ -75,7 +73,7 @@ interface NoiseState {
 
 const globalNoise = globalThis as typeof globalThis & { __sp_forkNoise?: NoiseState }
 const state: NoiseState = globalNoise.__sp_forkNoise ??= {
-  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, occupiedAt: null, session: undefined, childStartedAt: 0, fading: null, rising: null,
+  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, session: undefined, childStartedAt: 0, fading: null, rising: null,
 }
 
 type NoiseSound = Pick<ForkPodSettings, 'noiseColor' | 'noiseVolume'>
@@ -135,13 +133,14 @@ function changeVolume(volume: number): void {
 
 /**
  * Why a session should end now, or null. The bed counts as empty once both
- * sides read empty for the set minutes, counted from when someone was last in
- * it, or from the end of the wait when nobody has been in it yet.
+ * sides read empty for the set minutes, counted from when the last sleeper
+ * got up, or from the end of the wait when nobody has been in it since the
+ * session started.
  */
-export function endReason(session: NoiseSession, timing: NoiseTiming, now: number, bed: { empty: boolean | null, occupiedAt: number | null }): string | null {
+export function endReason(session: NoiseSession, timing: NoiseTiming, now: number, bed: { empty: boolean | null, leftAt: number | null }): string | null {
   if (now - session.startedAt >= timing.noiseMaxHours * 60 * MINUTE) return 'longest length'
   if (bed.empty !== true) return null
-  const from = bed.occupiedAt ?? session.startedAt + timing.noiseWaitMinutes * MINUTE
+  const from = bed.leftAt !== null && bed.leftAt > session.startedAt ? bed.leftAt : session.startedAt + timing.noiseWaitMinutes * MINUTE
   return now - from >= timing.noiseEmptyMinutes * MINUTE ? 'bed empty' : null
 }
 
@@ -155,11 +154,9 @@ export function noiseSides(pod: Pick<ForkPodSettings, 'noiseSide'>, home: Side[]
   return chosen.filter(side => home.includes(side))
 }
 
-function loadSession(now = Date.now()): NoiseSession | null {
+function loadSession(): NoiseSession | null {
   if (state.session === undefined) {
     state.session = readKey<NoiseSession>(SESSION_KEY)
-    // Who was in bed before a restart isn't known, so the empty-bed count starts afresh.
-    if (state.session) state.occupiedAt = now
   }
   return state.session
 }
@@ -180,11 +177,17 @@ function saveSession(session: NoiseSession | null, why: string, now = Date.now()
   }
 }
 
-function bedNow(now: number): { empty: boolean | null, any: boolean } {
-  if (!sensorsFresh(now)) return { empty: null, any: false }
-  const left = presenceOf('left').occupied
-  const right = presenceOf('right').occupied
-  return { empty: left === false && right === false, any: left === true || right === true }
+/**
+ * Whether the bed is empty, and if so when the last sleeper got up. Presence
+ * calls an exit only after some minutes empty, and dates it back to then.
+ */
+function bedNow(now: number): { empty: boolean | null, leftAt: number | null } {
+  if (!sensorsFresh(now)) return { empty: null, leftAt: null }
+  const left = presenceOf('left')
+  const right = presenceOf('right')
+  const empty = left.occupied === false && right.occupied === false
+  const times = [left.since, right.since].filter((at): at is number => at !== null)
+  return { empty, leftAt: empty && times.length > 0 ? Math.max(...times) : null }
 }
 
 export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): void {
@@ -195,7 +198,6 @@ export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): vo
     if (BY_HAND.includes(reason)) writeKey(HAND_STOP_KEY, now)
   }
   else if (!loadSession()) {
-    state.occupiedAt = bedNow(now).any ? now : null
     saveSession({ reason, startedAt: now }, reason, now)
     // Starting it again by hand takes back an earlier stop by hand.
     if (BY_HAND.includes(reason)) removeKey(HAND_STOP_KEY)
@@ -388,9 +390,8 @@ function handStoppedTonight(nights: SideNight[]): boolean {
   return opens.length > 0 && stoppedAt >= Math.min(...opens)
 }
 
-function startByItself(reason: NoiseReason, someoneInBed: boolean, now: number): void {
-  if (loadSession(now)) return
-  state.occupiedAt = someoneInBed ? now : null
+function startByItself(reason: NoiseReason, now: number): void {
+  if (loadSession()) return
   saveSession({ reason, startedAt: now }, reason, now)
 }
 
@@ -408,7 +409,7 @@ function startWhenInBed(nights: SideNight[], now: number): void {
     if (opensAt === null || occupied !== true || since === null) return false
     return now - since >= getSideSettings(side).minutesToCall * MINUTE && (endedAt === null || since > endedAt)
   })
-  if (settled) startByItself('smart-start', true, now)
+  if (settled) startByItself('smart-start', now)
 }
 
 /**
@@ -422,7 +423,7 @@ function startNoiseByItself(pod: ForkPodSettings, now: number): boolean | null {
     if (nights.length === 0 || handStoppedTonight(nights)) return false
     if (pod.noiseStart === 'clock') {
       const bedHours = nights.some(night => night.scheduled)
-      if (bedHours) startByItself('bedtime', false, now)
+      if (bedHours) startByItself('bedtime', now)
       return bedHours
     }
     if (pod.detection === 'live') startWhenInBed(nights, now)
@@ -442,13 +443,11 @@ function startNoiseByItself(pod: ForkPodSettings, now: number): boolean | null {
 export function syncNoise(now = Date.now()): void {
   const pod = getPodSettings()
   const bedHours = pod.noiseStart !== 'off' && startNoiseByItself(pod, now)
-  const session = loadSession(now)
+  const session = loadSession()
   if (session) {
-    const bed = bedNow(now)
-    if (bed.any) state.occupiedAt = now
     if (bedHours !== true) {
       const hoursOver = bedHours === false ? 'bed hours over' : null
-      const why = session.reason === 'bedtime' ? hoursOver : endReason(session, pod, now, { empty: bed.empty, occupiedAt: state.occupiedAt })
+      const why = session.reason === 'bedtime' ? hoursOver : endReason(session, pod, now, bedNow(now))
       if (why) saveSession(null, why, now)
     }
   }
@@ -484,7 +483,6 @@ export function noiseStatus(): { on: boolean, playing: boolean, reason: NoiseRea
 export function resetNoiseMemory(): void {
   stopNoise()
   state.session = undefined
-  state.occupiedAt = null
   state.problem = null
   state.failedKey = null
 }

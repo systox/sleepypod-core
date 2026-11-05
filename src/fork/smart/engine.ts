@@ -62,6 +62,11 @@ export interface TickContext {
   settings: ForkSideSettings
   /** Null when sensors are blind: missing data never counts as an empty bed. */
   occupied: boolean | null
+  /**
+   * When the sleeper got up, while the side reads empty. Presence calls an
+   * exit only after some minutes empty, and dates it back to when they left.
+   */
+  leftAt: number | null
   /** When this side's body arrived, if it did since the last tick. */
   enteredAt: number | null
   /** The other side's run is open and it reads empty: a body here may be its owner. */
@@ -297,7 +302,8 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
     if (next.absentSince !== null) return returnToBed(next, ctx, events)
   }
   else {
-    if (next.absentSince === null) next = { ...next, absentSince: now }
+    // Counted from when they got up, not from when presence was sure of it.
+    if (next.absentSince === null) next = { ...next, absentSince: Math.min(now, Math.max(ctx.leftAt ?? now, next.startedAt ?? 0)) }
     const absentSince = next.absentSince as number
     const out = now - absentSince
     const [firstStep, secondStep, thirdStep] = settings.tripStepMinutes.map(m => m * MINUTE)

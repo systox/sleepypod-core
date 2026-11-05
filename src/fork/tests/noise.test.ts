@@ -10,20 +10,22 @@ describe('when white noise ends', () => {
   const session = { reason: 'app' as const, startedAt: NOW }
 
   it('waits for someone when it starts on an empty bed', () => {
-    expect(endReason(session, timing, NOW + 30 * MIN, { empty: true, occupiedAt: null })).toBeNull()
-    expect(endReason(session, timing, NOW + 70 * MIN, { empty: true, occupiedAt: null })).toBe('bed empty')
+    expect(endReason(session, timing, NOW + 30 * MIN, { empty: true, leftAt: null })).toBeNull()
+    expect(endReason(session, timing, NOW + 70 * MIN, { empty: true, leftAt: null })).toBe('bed empty')
+    // Out of bed since before it started: nobody has been in since, so the wait still applies.
+    expect(endReason(session, timing, NOW + 30 * MIN, { empty: true, leftAt: NOW - 2 * 60 * MIN })).toBeNull()
   })
 
-  it('stops once the bed has been empty a while after someone was in it', () => {
+  it('stops once the bed has been empty a while, counted from when the last sleeper got up', () => {
     const left = NOW + 5 * 60 * MIN
-    expect(endReason(session, timing, left + 9 * MIN, { empty: true, occupiedAt: left })).toBeNull()
-    expect(endReason(session, timing, left + 10 * MIN, { empty: true, occupiedAt: left })).toBe('bed empty')
+    expect(endReason(session, timing, left + 9 * MIN, { empty: true, leftAt: left })).toBeNull()
+    expect(endReason(session, timing, left + 10 * MIN, { empty: true, leftAt: left })).toBe('bed empty')
   })
 
   it('keeps going while anyone is in bed or the sensors are blind, up to its longest', () => {
-    expect(endReason(session, timing, NOW + 5 * 60 * MIN, { empty: false, occupiedAt: NOW })).toBeNull()
-    expect(endReason(session, timing, NOW + 5 * 60 * MIN, { empty: null, occupiedAt: null })).toBeNull()
-    expect(endReason(session, timing, NOW + 12 * 60 * MIN, { empty: null, occupiedAt: null })).toBe('longest length')
+    expect(endReason(session, timing, NOW + 5 * 60 * MIN, { empty: false, leftAt: null })).toBeNull()
+    expect(endReason(session, timing, NOW + 5 * 60 * MIN, { empty: null, leftAt: null })).toBeNull()
+    expect(endReason(session, timing, NOW + 12 * 60 * MIN, { empty: null, leftAt: null })).toBe('longest length')
   })
 })
 

@@ -27,6 +27,7 @@ function ctx(now: number, over: Partial<TickContext> = {}, sideOver: Partial<For
     elapsedMs: 30_000,
     settings: s,
     occupied: false,
+    leftAt: null,
     enteredAt: null,
     otherOpenAndEmpty: false,
     movedAcross: false,
@@ -310,6 +311,17 @@ describe('ending', () => {
     expect(done.state.phase).toBe('closed')
     expect(kinds(done.actions)).toEqual(['off'])
     expect(done.state.fullRunEndedAt).not.toBeNull()
+  })
+
+  it('counts the 30 minutes from when the sleeper got up, not from when presence was sure', () => {
+    const state = advance(started(entered), entered + MIN, 8 * 60).state
+    const leave = entered + 8 * HOUR + MIN
+    // Presence calls the exit 5 minutes late, dated back to when they left.
+    const trip = advance(state, leave + 5 * MIN, 24, { occupied: false, leftAt: leave })
+    expect(trip.state.absentSince).toBe(leave)
+    expect(trip.actions).toEqual([])
+    const done = advance(trip.state, leave + 29 * MIN, 2, { occupied: false, leftAt: leave })
+    expect(done.state.phase).toBe('closed')
   })
 
   it('counts the earliest end without time out of bed', () => {
