@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   syncMirroredSide: vi.fn(),
   applyBedConfiguration: vi.fn(),
   occupied: null as boolean | null,
+  presence: {} as Record<string, { occupied: boolean | null, since: number | null, returningSince: number | null }>,
   clock: 0,
   holds: { left: null, right: null } as Record<'left' | 'right', { temperature: number, until: number } | null>,
   off: { left: false, right: false } as Record<'left' | 'right', boolean>,
@@ -44,7 +45,7 @@ vi.mock('@/src/scheduler/instance', () => ({
   getJobManager: async () => ({ syncMirroredSide: h.syncMirroredSide, applyBedConfiguration: h.applyBedConfiguration }),
 }))
 vi.mock('../../presence/collector', () => ({
-  presenceOf: () => ({ occupied: h.occupied, since: null }),
+  presenceOf: (side: string) => h.presence[side] ?? { occupied: h.occupied, since: null, returningSince: null },
   sensorsFresh: () => true,
   takeEntry: () => null,
   twoBodies: () => false,
@@ -56,7 +57,7 @@ import type { BedState } from '@/src/lib/singleSleeper'
 import { markPersonPower, runtime } from '../../runtime'
 import { setPodSettings, setSideSettings } from '../../settings'
 import { closeStore, listEvents } from '../../store'
-import { carriesHomeHold, followingOf, pointsFromNow, releaseFollowing, smartSourceOf, smartStartFor, syncFollowing } from '../following'
+import { bedPresenceOf, carriesHomeHold, followingOf, pointsFromNow, releaseFollowing, smartSourceOf, smartStartFor, syncFollowing } from '../following'
 import { runCommand } from '../runner'
 
 const HOUR = 3_600_000
@@ -102,6 +103,7 @@ beforeEach(() => {
   db.delete(runOnceSessions).run()
   runtime.personPower.clear()
   h.occupied = null
+  h.presence = {}
   h.clock = NOW
   h.holds = { left: null, right: null }
   h.off = { left: false, right: false }
@@ -406,5 +408,24 @@ describe('holds on the home side', () => {
     await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
     await syncFollowing('right', HOME, true, null, NOW + MIN)
     expect(h.holds.right).toBeNull()
+  })
+})
+
+describe('the whole bed is the home sleeper’s', () => {
+  const view = (occupied: boolean | null, since: number | null, returningSince: number | null = null) => ({ occupied, since, returningSince })
+
+  it('counts lying on the away side as being in bed', () => {
+    h.presence = { left: view(false, NOW - HOUR), right: view(true, NOW - 10 * 60_000) }
+    expect(bedPresenceOf('left', AWAY)).toEqual(view(true, NOW - 10 * 60_000))
+  })
+
+  it('is empty only when both sides are, since the last one left', () => {
+    h.presence = { left: view(false, NOW - HOUR), right: view(false, NOW - 5 * 60_000, NOW - 60_000) }
+    expect(bedPresenceOf('left', AWAY)).toEqual(view(false, NOW - 5 * 60_000, NOW - 60_000))
+  })
+
+  it('is the side’s own while nobody is away', () => {
+    h.presence = { left: view(false, NOW - HOUR), right: view(true, NOW) }
+    expect(bedPresenceOf('left', HOME)).toEqual(view(false, NOW - HOUR))
   })
 })

@@ -6,11 +6,16 @@ const h = vi.hoisted(() => ({
   setManualLocked: vi.fn(),
   target: 86 as number | null,
   turnedOff: false,
+  leader: null as 'left' | 'right' | null,
+  dismissed: false,
+  carried: false,
+  carry: vi.fn(),
+  sideStatus: {} as Record<string, Record<string, unknown>>,
 }))
 
 vi.mock('@/src/temperature/instance', () => ({
   getTemperatureController: () => ({
-    status: () => h.status,
+    status: (side: string) => h.sideStatus[side] ?? h.status,
     baselineTarget: () => h.baseline,
     turnedOff: () => h.turnedOff,
     setManualLocked: h.setManualLocked,
@@ -19,6 +24,11 @@ vi.mock('@/src/temperature/instance', () => ({
 vi.mock('@/src/hardware/sideLock', () => ({ withSideLock: (_side: string, fn: () => unknown) => fn() }))
 const noteSmartPress = vi.hoisted(() => vi.fn())
 vi.mock('../smart/runner', () => ({ noteSmartPress }))
+vi.mock('../smart/following', () => ({
+  followingOf: () => (h.leader ? { leader: h.leader, why: 'away', dismissed: h.dismissed } : null),
+  carriesHomeHold: () => h.carried,
+  carryHomeHold: h.carry,
+}))
 vi.mock('@/src/db', () => ({
   db: {
     select: () => ({ from: () => ({ where: () => ({ get: () => ({ target: h.target }) }) }) }),
@@ -38,15 +48,74 @@ beforeEach(() => {
   closeStore()
   runtime.running = true
   h.status = { source: 'manual', holdUntil: NOW + 30_000, blocked: null, targetTemperature: 86, requestId: 'manual' }
+  h.leader = null
+  h.dismissed = false
+  h.carried = false
+  h.carry.mockReset()
+  h.sideStatus = {}
   h.baseline = 81
   h.target = 86
   h.turnedOff = false
   h.setManualLocked.mockReset()
+  noteSmartPress.mockReset()
   h.setManualLocked.mockImplementation(async (_side, _temperature, ms: number) => ({ holdUntil: NOW + ms }))
 })
 afterEach(() => {
   runtime.running = false
   closeStore()
+})
+
+describe('presses on a side that follows the home sleeper', () => {
+  // Right is away and follows left: both at 84 before the press, which took right to 87.
+  const following = () => {
+    h.leader = 'left'
+    h.target = 87
+    h.sideStatus = {
+      right: { source: 'run-once', holdUntil: null, blocked: null, targetTemperature: 84, requestId: 'copy' },
+      left: { source: 'run-once', holdUntil: null, blocked: null, targetTemperature: 84, requestId: 'curve' },
+    }
+  }
+
+  it('move the home side by as much, and hold it', async () => {
+    following()
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 87, 60 * MIN)
+    expect(listEvents(0, Date.now() + 1, ['press-for-home'])).toHaveLength(1)
+    // Carried back at once, so a second press counts from the new hold.
+    expect(h.carry).toHaveBeenCalledWith('right')
+  })
+
+  it('count a press resting on neutral as the neutral temperature, as on the home side', async () => {
+    following()
+    h.target = null
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['bottom'])
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 83, 60 * MIN)
+  })
+
+  it('stay on a side someone took out of the follow for tonight', async () => {
+    following()
+    h.dismissed = true
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenCalledWith('right', 87, 60 * MIN)
+    expect(h.carry).not.toHaveBeenCalled()
+  })
+
+  it('stay on the pressed side while the home side is off', async () => {
+    following()
+    h.sideStatus.left = { ...h.sideStatus.left, blocked: 'off' }
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenCalledWith('right', 87, 60 * MIN)
+  })
+
+  it('pass a press on an off side to the home sleeper Smart start', async () => {
+    following()
+    await settlePress('right', false, ['top'])
+    expect(noteSmartPress).toHaveBeenCalledWith('left')
+  })
 })
 
 describe('presses', () => {
@@ -158,6 +227,13 @@ describe('Smooth return', () => {
   it('waits until the hold is about to end', async () => {
     on()
     h.status.holdUntil = NOW + 5 * MIN
+    await stepSmoothReturn('left', NOW)
+    expect(h.setManualLocked).not.toHaveBeenCalled()
+  })
+
+  it('leaves the steps of a hold carried from the home side to the home side', async () => {
+    on()
+    h.carried = true
     await stepSmoothReturn('left', NOW)
     expect(h.setManualLocked).not.toHaveBeenCalled()
   })

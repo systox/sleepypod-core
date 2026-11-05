@@ -7,6 +7,8 @@ const h = vi.hoisted(() => ({
   occupied: { left: false as boolean | null, right: false as boolean | null },
   since: { left: null as number | null, right: null as number | null },
   returning: { left: null as number | null, right: null as number | null },
+  merged: {} as Record<string, { occupied: boolean, since: number, returningSince: null }>,
+  emptiedAt: 0,
   bedtimes: { left: null as number | null, right: null as number | null },
   away: { left: false, right: false },
   runs: { left: { phase: 'idle', startedAt: null }, right: { phase: 'idle', startedAt: null } } as Record<'left' | 'right', { phase: string, startedAt: number | null }>,
@@ -23,10 +25,11 @@ vi.mock('@/src/temperature/instance', () => ({ getTemperatureController: () => (
 vi.mock('../presence/collector', () => ({
   presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] }),
   sensorsFresh: () => true,
+  bedEmptiedAt: () => h.emptiedAt,
 }))
 vi.mock('../smart/following', () => ({
   bedState: () => ({ bedMode: 'two', left: { awayMode: h.away.left }, right: { awayMode: h.away.right } }),
-  bedPresenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] }),
+  bedPresenceOf: (side: 'left' | 'right') => h.merged[side] ?? { occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] },
 }))
 vi.mock('../smart/runner', () => ({
   windowsOf: (side: 'left' | 'right', now: number, hours?: { hoursLate: number }) => {
@@ -77,6 +80,8 @@ beforeEach(() => {
   h.occupied = { left: false, right: false }
   h.since = { left: null, right: null }
   h.returning = { left: null, right: null }
+  h.merged = {}
+  h.emptiedAt = 0
   h.bedtimes = { left: null, right: null }
   h.away = { left: false, right: false }
   h.runs = { left: { phase: 'idle', startedAt: null }, right: { phase: 'idle', startedAt: null } }
@@ -296,6 +301,25 @@ describe('a white noise session', () => {
     expect(noiseStatus().on).toBe(false)
     inBed('right', NOW + 80 * MIN)
     syncNoise(NOW + 85 * MIN)
+    expect(noiseStatus().on).toBe(true)
+  })
+
+  it('Smart does not start again for someone who rolled onto the other side after its longest length', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live', noiseMaxHours: 1 })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    syncNoise(NOW + 60 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    // Rolled across at 70: her own side reads empty, and the whole bed reads in since 70.
+    outOfBed('right', NOW + 70 * MIN)
+    h.merged.right = { occupied: true, since: NOW + 70 * MIN, returningSince: null }
+    syncNoise(NOW + 80 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    // Out of bed altogether at 90, back at 95.
+    h.emptiedAt = NOW + 90 * MIN
+    h.merged.right = { occupied: true, since: NOW + 95 * MIN, returningSince: null }
+    syncNoise(NOW + 100 * MIN)
     expect(noiseStatus().on).toBe(true)
   })
 

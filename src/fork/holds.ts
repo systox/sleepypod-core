@@ -9,13 +9,13 @@ import { nightRows, type NightPower } from '@/src/lib/nightDay'
 import { DAYS_OF_WEEK } from '@/src/lib/scheduleTime'
 import { weeklyWindow, weeklyZone } from '@/src/scheduler/occurrences'
 import { timeToDate } from '@/src/scheduler/timeUtils'
-import { fahrenheitToLevel, type Side } from '@/src/hardware/types'
+import { fahrenheitToLevel, MAX_TEMP, MIN_TEMP, type Side } from '@/src/hardware/types'
 import { withSideLock } from '@/src/hardware/sideLock'
 import { MAX_HOLD_MS } from '@/src/temperature/controller'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { deviceTimezone } from './clock'
 import { observeMiddle } from './middleButton'
-import { carriesHomeHold } from './smart/following'
+import { carriesHomeHold, carryHomeHold, followingOf } from './smart/following'
 import { noteSmartPress } from './smart/runner'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -138,11 +138,19 @@ export function clearPressWaits(): void {
 
 export async function settlePress(side: Side, wasOn: boolean, buttons: string[]): Promise<void> {
   logEvent(side, 'press', { buttons })
+  // With the other sleeper away, the side that follows the home sleeper has
+  // their buttons, unless someone took it out of the follow for tonight.
+  const follow = followingOf(side)
+  const home = follow && !follow.dismissed ? follow.leader : side
   if (!wasOn) {
-    await noteSmartPress(side)
+    await noteSmartPress(home)
     return
   }
   const pod = getPodSettings()
+  if (home !== side && await pressForHome(side, home, pod.holdMinutes)) {
+    fades.delete(home)
+    return
+  }
   if (pod.holdMinutes === 0) return
   await withSideLock(side, async () => {
     const controller = getTemperatureController()
@@ -154,6 +162,31 @@ export async function settlePress(side: Side, wasOn: boolean, buttons: string[])
     await controller.setManualLocked(side, temperature, pod.holdMinutes * MINUTE)
   })
   fades.delete(side)
+}
+
+/**
+ * A press on a side that follows the home sleeper: the firmware moved this
+ * side, so the home side moves by as much and holds, and that hold is carried
+ * back here at once, so a second press counts from it. False when the home
+ * side is off or can't take it, so the press stays on this side as before.
+ */
+async function pressForHome(side: Side, home: Side, holdMinutes: number): Promise<boolean> {
+  const controller = getTemperatureController()
+  const before = controller.status(side).targetTemperature
+  const target = currentTarget(side)
+  // As for a press on the home side: sleepypod reads level 0 as off, so a press resting there counts as neutral.
+  const landed = target === null || fahrenheitToLevel(Math.round(target)) === 0 ? STEP_OFF_NEUTRAL_F : Math.round(target)
+  const step = before === null ? 0 : landed - Math.round(before)
+  const held = await withSideLock(home, async () => {
+    const status = controller.status(home)
+    if (status.blocked !== null || controller.turnedOff(home) || status.targetTemperature === null) return false
+    const temperature = Math.max(MIN_TEMP, Math.min(Math.round(status.targetTemperature) + step, getSideSettings(home).warmestF, MAX_TEMP))
+    await controller.setManualLocked(home, temperature, holdMinutes > 0 ? holdMinutes * MINUTE : defaultHoldMs(home))
+    logEvent(home, 'press-for-home', { from: side, step })
+    return true
+  })
+  if (held) await carryHomeHold(side)
+  return held
 }
 
 /** One Smooth return check: step the hold 1°F toward the curve as it's about to end. */

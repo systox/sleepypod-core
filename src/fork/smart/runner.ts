@@ -15,7 +15,7 @@ import { caller } from '../caller'
 import { deviceTimezone } from '../clock'
 import { logEvent, readKey, writeKey } from '../store'
 import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow, type WindowHours } from './curves'
-import { followingOf } from './following'
+import { bedPresenceOf, followerOf, followingOf } from './following'
 import { command, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
 
 const HOUR = 3_600_000
@@ -51,9 +51,12 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
   const other: Side = side === 'left' ? 'right' : 'left'
   const { window, next } = windowsOf(side, now)
   const status = getTemperatureController().status(side)
-  const presence = presenceOf(side)
+  // With the other sleeper away, the whole bed is this sleeper's: getting in on their side counts too.
+  const presence = bedPresenceOf(side)
   const otherPresence = presenceOf(other)
-  const entry = takeEntry(side)
+  const follower = followerOf(side)
+  const followerEntry = follower === null ? null : takeEntry(follower)
+  const entry = takeEntry(side) ?? (followerEntry && { ...followerEntry, movedAcross: false })
   const person = takePersonPower(side, now)
   const away = db.select({ away: sideSettings.awayMode }).from(sideSettings).where(eq(sideSettings.side, side)).get()?.away ?? false
   const otherRun = runStateOf(other)
@@ -161,7 +164,7 @@ export async function runCommand(side: Side, name: Command, now = Date.now()): P
  */
 export async function noteSmartPress(side: Side): Promise<void> {
   if (!getPodSettings().pressStartsClosedSide || !getSideSettings(side).smartStart || followingOf(side)) return
-  if (presenceOf(side).occupied !== true) return
+  if (bedPresenceOf(side).occupied !== true) return
   const phase = runStateOf(side).phase
   if (phase === 'closed' || phase === 'idle') await runCommand(side, 'start-back')
 }

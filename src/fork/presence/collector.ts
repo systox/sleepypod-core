@@ -206,6 +206,12 @@ export function presenceOf(side: Side): PresenceView {
   return { occupied: state?.occupied ?? null, since: state?.since ?? null, returningSince: returning }
 }
 
+/** The last minute both sides read empty: after it, anyone in bed got in. */
+export function bedEmptiedAt(): number {
+  loadPresence()
+  return collector.bedEmptyAt
+}
+
 export function takeEntry(side: Side): { at: number, movedAcross: boolean } | null {
   const entry = collector.entries.get(side)
   collector.entries.delete(side)

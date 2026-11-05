@@ -15,10 +15,10 @@ import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_proces
 import { promisify } from 'node:util'
 import type { Side } from '@/src/hardware/types'
 import { activeSleeperSides } from '@/src/lib/singleSleeper'
-import { presenceOf, sensorsFresh } from './presence/collector'
+import { bedEmptiedAt, presenceOf, sensorsFresh } from './presence/collector'
 import type { ForkPodSettings } from './settings'
 import { getPodSettings, getSideSettings } from './settings'
-import { bedState } from './smart/following'
+import { bedPresenceOf, bedState } from './smart/following'
 import { runStateOf, windowsOf } from './smart/runner'
 import { logEvent, readKey, removeKey, writeKey } from './store'
 
@@ -426,9 +426,12 @@ function startWhenInBed(nights: SideNight[], now: number): void {
   const last = readKey<{ why: string, at: number }>(LAST_STOP_KEY)
   const endedAt = last?.why === 'longest length' ? last.at : null
   const settled = nights.some(({ side, opensAt }) => {
-    const { occupied, since } = presenceOf(side)
+    const { occupied, since } = bedPresenceOf(side)
     if (opensAt === null || occupied !== true || since === null) return false
-    return now - since >= getSideSettings(side).minutesToCall * MINUTE && (endedAt === null || since > endedAt)
+    if (now - since < getSideSettings(side).minutesToCall * MINUTE) return false
+    // Rolling onto a side the bed shares doesn't count as getting back in: the bed must have been empty, or this side got in afresh.
+    const own = presenceOf(side)
+    return endedAt === null || bedEmptiedAt() > endedAt || (own.occupied === true && own.since !== null && own.since > endedAt)
   })
   if (settled) startByItself('smart-start', now)
 }

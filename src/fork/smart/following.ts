@@ -13,9 +13,13 @@
  * and is off when the home side has none. Otherwise sleepypod's scheduler
  * mirrors the weekly schedule as it always has.
  *
- * With or without Smart start, the whole bed answers the home sleeper: a button press or a
- * change in the app holds the empty side too, and its Smooth return steps and
- * its end carry across. Sleepypod's own mirror copies the schedule only.
+ * With or without Smart start, the whole bed answers the home sleeper: a
+ * button press or a change in the app holds the empty side too, and its
+ * Smooth return steps and its end carry across. The empty side's buttons are
+ * the home sleeper's too, and anyone or anything on it counts as the home
+ * sleeper in bed (see bedPresenceOf), for an away sleeper's side and the
+ * unused side of a bed set up for one alike. Sleepypod's own mirror copies the
+ * schedule only.
  *
  * A person who turns the empty side off, or ends its curve, has it stay that
  * way until the home side's curve is over or they turn it back on.
@@ -32,7 +36,7 @@ import { getTemperatureController } from '@/src/temperature/instance'
 import { timeToDate } from '@/src/scheduler/timeUtils'
 import { caller } from '../caller'
 import { deviceTimezone } from '../clock'
-import { presenceOf, sensorsFresh } from '../presence/collector'
+import { presenceOf, sensorsFresh, type PresenceView } from '../presence/collector'
 import { takePersonPower } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
 import { logEvent, readKey, removeKey, writeKey } from '../store'
@@ -91,6 +95,35 @@ export function smartSourceOf(side: Side, state: BedState = bedState()): Side {
 /** Whether Smart start is on for a side, by that rule. */
 export function smartStartFor(side: Side, state: BedState = bedState()): boolean {
   return getSideSettings(smartSourceOf(side, state)).smartStart
+}
+
+/** The side that follows this one, if any: its sleeper is away, or the bed is set up for one. */
+export function followerOf(side: Side, state: BedState = bedState()): Side | null {
+  const other: Side = side === 'left' ? 'right' : 'left'
+  return smartSourceOf(other, state) === side ? other : null
+}
+
+/**
+ * A home sleeper's presence over the whole bed: with the other sleeper away
+ * and their side following, lying on that side counts as being in bed. In
+ * on either side is in, since the first of them; empty means both are, since
+ * the last one left; a side showing someone back counts as returning.
+ */
+export function bedPresenceOf(side: Side, state: BedState = bedState()): PresenceView {
+  const own = presenceOf(side)
+  const follower = followerOf(side, state)
+  if (follower === null) return own
+  const views = [own, presenceOf(follower)]
+  const times = (list: PresenceView[]) => list.map(view => view.since).filter((at): at is number => at !== null)
+  const inBed = views.filter(view => view.occupied === true)
+  if (inBed.length > 0) {
+    const since = times(inBed)
+    return { occupied: true, since: since.length > 0 ? Math.min(...since) : null, returningSince: null }
+  }
+  if (views.some(view => view.occupied === null)) return own
+  const since = times(views)
+  const returning = views.map(view => view.returningSince).filter((at): at is number => Boolean(at))
+  return { occupied: false, since: since.length > 0 ? Math.max(...since) : null, returningSince: returning.length > 0 ? Math.min(...returning) : null }
 }
 
 /** The home side this side follows, and why, or null. */
@@ -180,6 +213,15 @@ async function endHold(side: Side, mark: FollowMark): Promise<void> {
     // Kept, so the next tick tries again.
     console.warn(`[fork] ${side} ending a carried hold failed:`, error instanceof Error ? error.message : error)
   }
+}
+
+/** Carry the home side's hold to this side now, as the next follow tick would. */
+export async function carryHomeHold(side: Side, now = Date.now()): Promise<void> {
+  const saved = readKey<FollowMark>(followKey(side))
+  if (!saved || saved.dismissed) return
+  const mark = { ...saved }
+  await followHold(side, saved.leader, mark, now)
+  if (JSON.stringify(mark) !== JSON.stringify(saved)) writeKey(followKey(side), mark)
 }
 
 /** The side holds because the home side does, so its Smooth return comes from there too. */
