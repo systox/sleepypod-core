@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   execFile: vi.fn(),
   occupied: { left: false as boolean | null, right: false as boolean | null },
   since: { left: null as number | null, right: null as number | null },
+  returning: { left: null as number | null, right: null as number | null },
   bedtimes: { left: null as number | null, right: null as number | null },
   away: { left: false, right: false },
   runs: { left: { phase: 'idle', startedAt: null }, right: { phase: 'idle', startedAt: null } } as Record<'left' | 'right', { phase: string, startedAt: number | null }>,
@@ -20,7 +21,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 vi.mock('@/src/temperature/instance', () => ({ getTemperatureController: () => ({ status: () => ({ blocked: null }) }) }))
 vi.mock('../presence/collector', () => ({
-  presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side] }),
+  presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] }),
   sensorsFresh: () => true,
 }))
 vi.mock('../smart/following', () => ({
@@ -74,6 +75,7 @@ beforeEach(() => {
   })
   h.occupied = { left: false, right: false }
   h.since = { left: null, right: null }
+  h.returning = { left: null, right: null }
   h.bedtimes = { left: null, right: null }
   h.away = { left: false, right: false }
   h.runs = { left: { phase: 'idle', startedAt: null }, right: { phase: 'idle', startedAt: null } }
@@ -231,6 +233,22 @@ describe('a white noise session', () => {
     expect(noiseStatus().on).toBe(false)
   })
 
+  it('Smart keeps playing for someone back in bed while presence makes sure', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    // Up at NOW + 1 minute and back at NOW + 8: presence sees her from 8 but calls it at 13.
+    outOfBed('right', NOW + MIN)
+    h.returning.right = NOW + 8 * MIN
+    syncNoise(NOW + 11 * MIN)
+    expect(noiseStatus().on).toBe(true)
+    h.returning.right = null
+    inBed('right', NOW + 8 * MIN)
+    syncNoise(NOW + 13 * MIN)
+    expect(noiseStatus().on).toBe(true)
+  })
+
   it('Smart starts only for a sleeper on a side that counts', () => {
     setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
     h.bedtimes = { left: NOW, right: NOW }
@@ -322,14 +340,16 @@ describe('a white noise session', () => {
     expect(h.spawn.mock.calls[1][1][1]).toContain('--volume=39322 ')
   })
 
-  it('counts an empty bed from when the sleeper got up, across a restart', () => {
+  it('gives an empty bed its full grace after a restart, since presence cannot yet see someone just back', () => {
     inBed('left', NOW - 30 * MIN)
     setNoise(true, 'app', NOW)
+    outOfBed('left', NOW + 2 * 60 * MIN)
     resetNoiseMemoryKeepingStore()
-    outOfBed('left', NOW + 3 * 60 * MIN - 5 * MIN)
     syncNoise(NOW + 3 * 60 * MIN)
     expect(noiseStatus().on).toBe(true)
-    syncNoise(NOW + 3 * 60 * MIN + 5 * MIN)
+    syncNoise(NOW + 3 * 60 * MIN + 9 * MIN)
+    expect(noiseStatus().on).toBe(true)
+    syncNoise(NOW + 3 * 60 * MIN + 10 * MIN)
     expect(noiseStatus().on).toBe(false)
   })
 

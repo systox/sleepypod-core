@@ -63,6 +63,7 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
     settings,
     occupied: sensorsFresh(now) ? presence.occupied : null,
     leftAt: presence.occupied === false ? presence.since : null,
+    returning: Boolean(presence.returningSince),
     enteredAt: entry?.at ?? null,
     movedAcross: entry?.movedAcross ?? false,
     otherOpenAndEmpty: otherRun.phase === 'running' && otherPresence.occupied === false,

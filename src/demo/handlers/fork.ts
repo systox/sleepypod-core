@@ -5,7 +5,7 @@ import type { DemoHandlers } from '../types'
 const side = (otherSideShare: number) => ({
   settings: { ...DEFAULT_SIDE_SETTINGS, otherSideShare },
   run: INITIAL_RUN,
-  presence: { occupied: false, since: null },
+  presence: { occupied: false, since: null, returningSince: null },
   fade: null,
   tonight: null,
   upcoming: null,

@@ -63,6 +63,8 @@ interface NoiseState {
   problem: string | null
   failedKey: string | null
   failedAt: number
+  /** When a session was read back after a restart: presence's minute-by-minute picture is rebuilding. */
+  reloadedAt: number | null
   session: NoiseSession | null | undefined
   childStartedAt: number
   /** A player whose session has ended, fading out before it is stopped. */
@@ -73,7 +75,7 @@ interface NoiseState {
 
 const globalNoise = globalThis as typeof globalThis & { __sp_forkNoise?: NoiseState }
 const state: NoiseState = globalNoise.__sp_forkNoise ??= {
-  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, session: undefined, childStartedAt: 0, fading: null, rising: null,
+  child: null, key: null, volume: null, problem: null, failedKey: null, failedAt: 0, reloadedAt: null, session: undefined, childStartedAt: 0, fading: null, rising: null,
 }
 
 type NoiseSound = Pick<ForkPodSettings, 'noiseColor' | 'noiseVolume'>
@@ -154,9 +156,11 @@ export function noiseSides(pod: Pick<ForkPodSettings, 'noiseSide'>, home: Side[]
   return chosen.filter(side => home.includes(side))
 }
 
-function loadSession(): NoiseSession | null {
+function loadSession(now = Date.now()): NoiseSession | null {
   if (state.session === undefined) {
     state.session = readKey<NoiseSession>(SESSION_KEY)
+    // Presence can't yet see someone who got back in just before a restart, so the empty-bed count starts afresh.
+    state.reloadedAt = state.session ? now : null
   }
   return state.session
 }
@@ -179,14 +183,16 @@ function saveSession(session: NoiseSession | null, why: string, now = Date.now()
 
 /**
  * Whether the bed is empty, and if so when the last sleeper got up. Presence
- * calls an exit only after some minutes empty, and dates it back to then.
+ * calls an exit only after some minutes empty, and dates it back to then. It
+ * is as slow to call a return, so a side showing someone back while presence
+ * makes sure doesn't count as empty.
  */
 function bedNow(now: number): { empty: boolean | null, leftAt: number | null } {
   if (!sensorsFresh(now)) return { empty: null, leftAt: null }
   const left = presenceOf('left')
   const right = presenceOf('right')
-  const empty = left.occupied === false && right.occupied === false
-  const times = [left.since, right.since].filter((at): at is number => at !== null)
+  const empty = left.occupied === false && right.occupied === false && !left.returningSince && !right.returningSince
+  const times = [left.since, right.since, state.reloadedAt].filter((at): at is number => at !== null)
   return { empty, leftAt: empty && times.length > 0 ? Math.max(...times) : null }
 }
 
@@ -391,7 +397,7 @@ function handStoppedTonight(nights: SideNight[]): boolean {
 }
 
 function startByItself(reason: NoiseReason, now: number): void {
-  if (loadSession()) return
+  if (loadSession(now)) return
   saveSession({ reason, startedAt: now }, reason, now)
 }
 
@@ -443,7 +449,7 @@ function startNoiseByItself(pod: ForkPodSettings, now: number): boolean | null {
 export function syncNoise(now = Date.now()): void {
   const pod = getPodSettings()
   const bedHours = pod.noiseStart !== 'off' && startNoiseByItself(pod, now)
-  const session = loadSession()
+  const session = loadSession(now)
   if (session) {
     if (bedHours !== true) {
       const hoursOver = bedHours === false ? 'bed hours over' : null
@@ -483,6 +489,7 @@ export function noiseStatus(): { on: boolean, playing: boolean, reason: NoiseRea
 export function resetNoiseMemory(): void {
   stopNoise()
   state.session = undefined
+  state.reloadedAt = null
   state.problem = null
   state.failedKey = null
 }

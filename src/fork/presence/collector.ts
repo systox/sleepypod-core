@@ -196,11 +196,14 @@ export function sensorsFresh(now = Date.now()): boolean {
 export interface PresenceView {
   occupied: boolean | null
   since: number | null
+  /** On a side called empty, readings have shown a body since this minute, and presence is making sure. */
+  returningSince: number | null
 }
 
 export function presenceOf(side: Side): PresenceView {
   const state = collector.presence?.[side]
-  return { occupied: state?.occupied ?? null, since: state?.since ?? null }
+  const returning = state?.occupied === false && state.run > 0 ? state.runSince : null
+  return { occupied: state?.occupied ?? null, since: state?.since ?? null, returningSince: returning }
 }
 
 export function takeEntry(side: Side): { at: number, movedAcross: boolean } | null {

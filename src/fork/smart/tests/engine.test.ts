@@ -28,6 +28,7 @@ function ctx(now: number, over: Partial<TickContext> = {}, sideOver: Partial<For
     settings: s,
     occupied: false,
     leftAt: null,
+    returning: false,
     enteredAt: null,
     otherOpenAndEmpty: false,
     movedAcross: false,
@@ -322,6 +323,28 @@ describe('ending', () => {
     expect(trip.actions).toEqual([])
     const done = advance(trip.state, leave + 29 * MIN, 2, { occupied: false, leftAt: leave })
     expect(done.state.phase).toBe('closed')
+  })
+
+  it('waits while the sleeper is back and presence is still making sure', () => {
+    const state = advance(started(entered), entered + MIN, 8 * 60).state
+    const leave = entered + 8 * HOUR + MIN
+    // Out 27 minutes: presence calls the exit at 5, and sees her back from 27 but calls it at 32.
+    const out = advance(state, leave + 5 * MIN, 22, { occupied: false, leftAt: leave })
+    const waiting = advance(out.state, leave + 27 * MIN, 5, { occupied: false, leftAt: leave, returning: true })
+    expect(waiting.state.phase).toBe('running')
+    expect(waiting.actions).toEqual([])
+    const back = tick(waiting.state, ctx(leave + 32 * MIN, { occupied: true, enteredAt: leave + 27 * MIN }))
+    expect(back.state.phase).toBe('running')
+    expect(back.state.outMs).toBe(27 * MIN)
+  })
+
+  it('never dates an exit back across blind minutes', () => {
+    const state = advance(started(entered), entered + MIN, 8 * 60).state
+    const now = entered + 9 * HOUR
+    // Presence dates the exit an hour back, across a gap in the readings.
+    const step = tick(state, ctx(now, { occupied: false, leftAt: now - HOUR }))
+    expect(step.state.absentSince).toBe(now - 6 * MIN)
+    expect(step.state.phase).toBe('running')
   })
 
   it('counts the earliest end without time out of bed', () => {

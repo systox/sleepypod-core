@@ -67,6 +67,8 @@ export interface TickContext {
    * exit only after some minutes empty, and dates it back to when they left.
    */
   leftAt: number | null
+  /** Readings show the sleeper back, and presence is still making sure. */
+  returning: boolean
   /** When this side's body arrived, if it did since the last tick. */
   enteredAt: number | null
   /** The other side's run is open and it reads empty: a body here may be its owner. */
@@ -301,9 +303,16 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
   if (ctx.occupied) {
     if (next.absentSince !== null) return returnToBed(next, ctx, events)
   }
+  else if (ctx.returning) {
+    // Back in bed while presence makes sure of it: the out-of-bed rules wait, so they never act on someone lying there.
+  }
   else {
-    // Counted from when they got up, not from when presence was sure of it.
-    if (next.absentSince === null) next = { ...next, absentSince: Math.min(now, Math.max(ctx.leftAt ?? now, next.startedAt ?? 0)) }
+    // Counted from when they got up, not from when presence was sure of it,
+    // but never further back than presence takes to be sure: blind minutes don't count.
+    if (next.absentSince === null) {
+      const earliest = Math.max(next.startedAt ?? 0, now - (settings.minutesToCall + 1) * MINUTE)
+      next = { ...next, absentSince: Math.min(now, Math.max(ctx.leftAt ?? now, earliest)) }
+    }
     const absentSince = next.absentSince as number
     const out = now - absentSince
     const [firstStep, secondStep, thirdStep] = settings.tripStepMinutes.map(m => m * MINUTE)
@@ -364,7 +373,8 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
 
 function returnToBed(state: RunState, ctx: TickContext, events: Decision['events']): Decision {
   const { now, settings } = ctx
-  const out = now - (state.absentSince as number)
+  // Presence dates the return back too, so the minutes it took to be sure count as in bed.
+  const out = Math.max(0, Math.min(now, ctx.enteredAt ?? now) - (state.absentSince as number))
   const paused = state.pausedAt
   const moved = paused === null ? 0 : now - paused
   const longAbsence = out >= settings.tripStepMinutes[1] * MINUTE
@@ -374,7 +384,7 @@ function returnToBed(state: RunState, ctx: TickContext, events: Decision['events
     pausedAt: null,
     offForTrip: false,
     curveZeroAt: (state.curveZeroAt as number) + moved,
-    outMs: state.outMs + out - moved,
+    outMs: state.outMs + Math.max(0, out - moved),
     backstopFrom: longAbsence ? now : state.backstopFrom,
     lastWriteAt: paused === null && !state.offForTrip ? state.lastWriteAt : now,
     note: null,
