@@ -10,10 +10,12 @@
  * With the home sleeper's Smart start on and acting, the empty side is
  * brought in line with the home side on every tick: it carries a copy of the
  * home side's current session, taken up from the present point of the curve,
- * and is off when the home side has none. A hold on the home side is a
- * session too, so the empty side holds with it; a button press changes only
- * the home side, as sleepypod's own mirror does. Otherwise sleepypod's
- * scheduler mirrors the weekly schedule as it always has.
+ * and is off when the home side has none. Otherwise sleepypod's scheduler
+ * mirrors the weekly schedule as it always has.
+ *
+ * With or without Smart start, the whole bed answers the home sleeper: a button press or a
+ * change in the app holds the empty side too, and its Smooth return steps and
+ * its end carry across. Sleepypod's own mirror copies the schedule only.
  *
  * A person who turns the empty side off, or ends its curve, has it stay that
  * way until the home side's curve is over or they turn it back on.
@@ -22,6 +24,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '@/src/db'
 import { deviceSettings, runOnceSessions, sideSettings } from '@/src/db/schema'
 import type { Side } from '@/src/hardware/types'
+import { withSideLock } from '@/src/hardware/sideLock'
 import { activeSleeperSides, scheduleSourceSide, type BedState } from '@/src/lib/singleSleeper'
 import { getJobManager } from '@/src/scheduler/instance'
 import { sessionTarget } from '@/src/temperature/baseline'
@@ -56,6 +59,8 @@ interface FollowMark {
   /** The home side's last write or timer refresh that reached this side. */
   refreshedAt: number | null
   dismissed: boolean
+  /** The home side's hold this side carries: its temperature, and when each side's copy ends. */
+  hold?: { temperature: number, homeUntil: number, until: number } | null
 }
 
 interface SetPoint { time: string, temperature: number }
@@ -64,6 +69,12 @@ interface SetPoint { time: string, temperature: number }
 export type FollowResult = 'started' | 'back-in-bed' | null
 
 const followKey = (side: Side) => `following:${side}`
+/**
+ * A carried hold outlasts the home side's by this much, so a Smooth return
+ * step there reaches this side before its copy runs out. When the home hold
+ * ends without a step, the next tick ends this one.
+ */
+const HOLD_OVERLAP_MS = 60_000
 
 export function bedState(): BedState {
   const device = db.select({ bedMode: deviceSettings.bedMode, unusedZoneMode: deviceSettings.unusedZoneMode }).from(deviceSettings).limit(1).get()
@@ -122,6 +133,54 @@ async function endCopy(side: Side, mark: FollowMark, now: number): Promise<void>
   mark.copyId = null
 }
 
+/**
+ * Carry the home side's hold across: a press or a change in the app on the
+ * home side holds this side too, and each Smooth return step and the hold's
+ * end follow. While the home side holds, this side matches it, whatever
+ * changed here. A side that is off stays off, since a hold would turn it on.
+ * A failure is tried again next tick and holds up nothing else.
+ */
+async function followHold(side: Side, leader: Side, mark: FollowMark, now: number): Promise<void> {
+  try {
+    const controller = getTemperatureController()
+    const home = controller.status(leader)
+    if (home.source !== 'manual' || home.holdUntil === null || home.targetTemperature === null || home.blocked !== null) {
+      await endHold(side, mark)
+      return
+    }
+    const temperature = home.targetTemperature
+    const homeUntil = home.holdUntil
+    const carried = mark.hold?.temperature === temperature && mark.hold.homeUntil === homeUntil
+    if (carried && controller.status(side).holdUntil === mark.hold?.until) return
+    const until = await withSideLock(side, async () => {
+      if (controller.status(side).blocked !== null) return null
+      const status = await controller.setManualLocked(side, temperature, Math.max(1000, Math.round(homeUntil + HOLD_OVERLAP_MS - now)))
+      return status.holdUntil
+    })
+    if (until !== null) mark.hold = { temperature, homeUntil, until }
+  }
+  catch (error) {
+    console.warn(`[fork] ${side} following a hold failed:`, error instanceof Error ? error.message : error)
+  }
+}
+
+/** End the hold carried from the home side, if this side still has it. */
+async function endHold(side: Side, mark: FollowMark): Promise<void> {
+  if (!mark.hold) return
+  const until = mark.hold.until
+  mark.hold = null
+  const controller = getTemperatureController()
+  const status = controller.status(side)
+  if (status.source !== 'manual' || status.holdUntil !== until) return
+  if (status.blocked === null) await controller.resume(side)
+  else await withSideLock(side, async () => controller.clearHoldLocked(side))
+}
+
+/** The side holds because the home side does, so its Smooth return comes from there too. */
+export function carriesHomeHold(side: Side, holdUntil: number): boolean {
+  return readKey<FollowMark>(followKey(side))?.hold?.until === holdUntil
+}
+
 async function followSmart(side: Side, leader: Side, mark: FollowMark, homeWriteAt: number | null, now: number): Promise<void> {
   const entering = mark.mode !== 'smart'
   mark.mode = 'smart'
@@ -168,6 +227,7 @@ async function followSmart(side: Side, leader: Side, mark: FollowMark, homeWrite
 
 /** The side no longer follows: hand it to whatever governs it now. */
 async function stopFollowing(side: Side, mark: FollowMark, state: BedState, live: boolean, now: number): Promise<FollowResult> {
+  await endHold(side, mark)
   const source = scheduleSourceSide(side, state)
   let result: FollowResult = null
   if (source === null) {
@@ -210,7 +270,7 @@ export async function syncFollowing(side: Side, state: BedState, live: boolean, 
 
   const started = saved?.leader !== leader
   const mark: FollowMark = !saved || started
-    ? { leader, mode: null, copyOf: null, copyId: null, refreshedAt: null, dismissed: false }
+    ? { leader, mode: null, copyOf: null, copyId: null, refreshedAt: null, dismissed: false, hold: null }
     : { ...saved }
   // The away sleeper's own session was for them, not for the curve this side now follows.
   if (started && activeSession(side, now)) await (await caller()).runOnce.cancel({ side })
@@ -222,6 +282,9 @@ export async function syncFollowing(side: Side, state: BedState, live: boolean, 
     // The scheduler mirrors the weekly schedule, now that Smart start doesn't hold this side.
     await (await getJobManager()).syncMirroredSide(side)
   }
+  // A person who turned the side off or ended its curve has it sit out the home side's holds too.
+  if (mark.dismissed) await endHold(side, mark)
+  else await followHold(side, leader, mark, now)
 
   // Saved only once it has worked, so a failure is tried again next tick, and only when it changed: this is flash.
   if (JSON.stringify(mark) !== JSON.stringify(saved)) writeKey(followKey(side), mark)
@@ -238,6 +301,7 @@ export async function releaseFollowing(now = Date.now()): Promise<void> {
   for (const side of SIDES) {
     const mark = readKey<FollowMark>(followKey(side))
     if (!mark) continue
+    await endHold(side, mark)
     await endCopy(side, mark, now)
     removeKey(followKey(side))
     logEvent(side, 'following-ended', null, now)

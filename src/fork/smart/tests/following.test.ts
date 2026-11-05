@@ -10,6 +10,11 @@ const h = vi.hoisted(() => ({
   syncMirroredSide: vi.fn(),
   applyBedConfiguration: vi.fn(),
   occupied: null as boolean | null,
+  clock: 0,
+  holds: { left: null, right: null } as Record<'left' | 'right', { temperature: number, until: number } | null>,
+  off: { left: false, right: false } as Record<'left' | 'right', boolean>,
+  setManualLocked: vi.fn(),
+  resume: vi.fn(),
 }))
 
 vi.mock('@/src/db', async () => {
@@ -19,9 +24,19 @@ vi.mock('@/src/db', async () => {
   const sqlite = new Database(':memory:')
   return { db: drizzle(sqlite, { schema }), sqlite }
 })
-vi.mock('@/src/temperature/instance', () => ({
-  getTemperatureController: () => ({ status: () => ({ blocked: null }), powerOff: h.powerOff, reconcile: h.reconcile }),
-}))
+vi.mock('@/src/temperature/instance', () => {
+  const status = (side: 'left' | 'right') => {
+    const hold = h.holds[side]
+    return { source: hold ? 'manual' : null, requestId: null, targetTemperature: hold?.temperature ?? null, holdUntil: hold?.until ?? null, blocked: h.off[side] ? 'off' : null }
+  }
+  return {
+    getTemperatureController: () => ({
+      status, powerOff: h.powerOff, reconcile: h.reconcile, setManualLocked: h.setManualLocked, resume: h.resume,
+      clearHoldLocked: (side: 'left' | 'right') => { h.holds[side] = null },
+    }),
+    status,
+  }
+})
 vi.mock('@/src/mcp/caller', () => ({
   getCaller: () => ({ runOnce: { cancel: h.cancel, start: h.start } }),
 }))
@@ -41,7 +56,7 @@ import type { BedState } from '@/src/lib/singleSleeper'
 import { markPersonPower, runtime } from '../../runtime'
 import { setPodSettings, setSideSettings } from '../../settings'
 import { closeStore, listEvents } from '../../store'
-import { followingOf, pointsFromNow, releaseFollowing, smartSourceOf, smartStartFor, syncFollowing } from '../following'
+import { carriesHomeHold, followingOf, pointsFromNow, releaseFollowing, smartSourceOf, smartStartFor, syncFollowing } from '../following'
 import { runCommand } from '../runner'
 
 const HOUR = 3_600_000
@@ -87,7 +102,17 @@ beforeEach(() => {
   db.delete(runOnceSessions).run()
   runtime.personPower.clear()
   h.occupied = null
-  for (const fn of [h.powerOff, h.reconcile, h.start, h.cancel, h.syncMirroredSide, h.applyBedConfiguration]) fn.mockReset()
+  h.clock = NOW
+  h.holds = { left: null, right: null }
+  h.off = { left: false, right: false }
+  for (const fn of [h.powerOff, h.reconcile, h.start, h.cancel, h.syncMirroredSide, h.applyBedConfiguration, h.setManualLocked, h.resume]) fn.mockReset()
+  h.setManualLocked.mockImplementation(async (side: 'left' | 'right', temperature: number, ms: number) => {
+    h.holds[side] = { temperature, until: h.clock + ms }
+    return { holdUntil: h.clock + ms }
+  })
+  h.resume.mockImplementation(async (side: 'left' | 'right') => {
+    h.holds[side] = null
+  })
   // The fakes behave like sleepypod's: a start replaces the side's session, a cancel ends it.
   h.start.mockImplementation(async ({ side, setPoints, wakeTime }: { side: 'left' | 'right', setPoints: unknown, wakeTime: string }) => {
     endSessions(side)
@@ -315,5 +340,71 @@ describe('when it stops following', () => {
     expect(active('right')).toHaveLength(0)
     expect(followingOf('right', HOME)).toBeNull()
     expect(h.applyBedConfiguration).toHaveBeenCalledOnce()
+  })
+})
+
+describe('holds on the home side', () => {
+  const MIN = 60_000
+
+  it('hold the away side too, once, with the same end', async () => {
+    await following()
+    h.holds.left = { temperature: 79, until: NOW + HOUR }
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
+    expect(h.setManualLocked).toHaveBeenCalledWith('right', 79, HOUR + MIN)
+    expect(h.holds.right).toEqual({ temperature: 79, until: NOW + HOUR + MIN })
+    expect(carriesHomeHold('right', NOW + HOUR + MIN)).toBe(true)
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW + MIN)
+    expect(h.setManualLocked).toHaveBeenCalledOnce()
+  })
+
+  it('carry each Smooth return step across, and end with the home side', async () => {
+    await following()
+    h.holds.left = { temperature: 79, until: NOW + HOUR }
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
+    h.holds.left = { temperature: 80, until: NOW + HOUR + 22 * MIN }
+    h.clock = NOW + HOUR - MIN
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW + HOUR - MIN)
+    expect(h.holds.right).toEqual({ temperature: 80, until: NOW + HOUR + 23 * MIN })
+    h.holds.left = null
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW + HOUR + MIN)
+    expect(h.resume).toHaveBeenCalledWith('right')
+    expect(h.holds.right).toBeNull()
+  })
+
+  it('match the home side while it holds, and leave the away side its own hold after', async () => {
+    await following()
+    h.holds.left = { temperature: 79, until: NOW + HOUR }
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
+    h.holds.right = null
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
+    expect(h.holds.right).toEqual({ temperature: 79, until: NOW + HOUR + MIN })
+    h.holds.right = { temperature: 84, until: NOW + 30 * MIN }
+    h.holds.left = null
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW + MIN)
+    expect(h.resume).not.toHaveBeenCalled()
+    expect(h.holds.right).toEqual({ temperature: 84, until: NOW + 30 * MIN })
+  })
+
+  it('reach the away side under the weekly schedule too', async () => {
+    setSideSettings('left', { smartStart: false })
+    h.holds.left = { temperature: 88, until: NOW + HOUR }
+    await syncFollowing('right', AWAY, true, null, NOW)
+    expect(h.holds.right).toEqual({ temperature: 88, until: NOW + HOUR + MIN })
+  })
+
+  it('never turn on an away side that is off', async () => {
+    h.off.right = true
+    await following()
+    h.holds.left = { temperature: 79, until: NOW + HOUR }
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
+    expect(h.setManualLocked).not.toHaveBeenCalled()
+  })
+
+  it('end on the away side once its sleeper is home', async () => {
+    await following()
+    h.holds.left = { temperature: 79, until: NOW + HOUR }
+    await syncFollowing('right', AWAY, true, NOW - HOUR, NOW)
+    await syncFollowing('right', HOME, true, null, NOW + MIN)
+    expect(h.holds.right).toBeNull()
   })
 })

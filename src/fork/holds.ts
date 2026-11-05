@@ -15,6 +15,7 @@ import { MAX_HOLD_MS } from '@/src/temperature/controller'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { deviceTimezone } from './clock'
 import { observeMiddle } from './middleButton'
+import { carriesHomeHold } from './smart/following'
 import { noteSmartPress } from './smart/runner'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -165,6 +166,8 @@ export async function stepSmoothReturn(side: Side, now = Date.now()): Promise<vo
     return
   }
   if (status.holdUntil - now > STEP_LEAD_MS) return
+  // A side following the home sleeper takes each step from the home side.
+  if (carriesHomeHold(side, status.holdUntil)) return
   const curve = controller.baselineTarget(side)
   const held = status.targetTemperature
   if (curve === null || held === null) return
