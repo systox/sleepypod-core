@@ -20,7 +20,7 @@ vi.mock('../../store', async (importOriginal) => {
 import { runtime } from '../../runtime'
 import { setPodSettings } from '../../settings'
 import { closeStore } from '../../store'
-import { closeMinute, markBedEmpty, observeCap, observePiezo } from '../collector'
+import { closeMinute, markBedEmpty, observeCap, observePiezo, presenceOf } from '../collector'
 
 const MINUTE = 60_000
 const START = 29_000_000 * MINUTE
@@ -78,5 +78,29 @@ describe('writing to storage', () => {
     h.writes.length = 0
     markBedEmpty(START + 26 * MINUTE)
     expect(h.writes).toEqual(['presence'])
+  })
+})
+
+describe('a return presence is making sure of', () => {
+  /** One minute of someone lying on the left side. */
+  function body(index: number): void {
+    const at = START + index * MINUTE
+    observeCap([2000, 2000], [10, 10], at)
+    observePiezo({ left1: [0, 3e6], right1: [0, 5] }, at)
+    closeMinute(at + MINUTE)
+  }
+
+  it('says since when readings show someone back, until presence calls them in', () => {
+    for (let i = 30; i < 40; i++) minute(i)
+    expect(presenceOf('left')).toMatchObject({ occupied: false, returningSince: null })
+    let first: number | null = null
+    let i = 40
+    while (presenceOf('left').occupied === false && i < 60) {
+      body(i)
+      first ??= presenceOf('left').returningSince
+      i++
+    }
+    expect(first).not.toBeNull()
+    expect(presenceOf('left')).toMatchObject({ occupied: true, since: first, returningSince: null })
   })
 })

@@ -52,6 +52,8 @@ const BY_HAND: string[] = ['app', 'button'] satisfies NoiseReason[]
 interface NoiseSession {
   reason: NoiseReason
   startedAt: number
+  /** Someone was in bed when it started, so an empty bed counts from then, not from the end of the wait. */
+  inBed?: boolean
 }
 
 interface NoiseState {
@@ -142,7 +144,8 @@ function changeVolume(volume: number): void {
 export function endReason(session: NoiseSession, timing: NoiseTiming, now: number, bed: { empty: boolean | null, leftAt: number | null }): string | null {
   if (now - session.startedAt >= timing.noiseMaxHours * 60 * MINUTE) return 'longest length'
   if (bed.empty !== true) return null
-  const from = bed.leftAt !== null && bed.leftAt > session.startedAt ? bed.leftAt : session.startedAt + timing.noiseWaitMinutes * MINUTE
+  const counted = bed.leftAt !== null && (bed.leftAt > session.startedAt || session.inBed === true)
+  const from = counted ? Math.max(bed.leftAt as number, session.startedAt) : session.startedAt + timing.noiseWaitMinutes * MINUTE
   return now - from >= timing.noiseEmptyMinutes * MINUTE ? 'bed empty' : null
 }
 
@@ -170,6 +173,7 @@ function saveSession(session: NoiseSession | null, why: string, now = Date.now()
   state.session = session
   if (session) writeKey(SESSION_KEY, session)
   else removeKey(SESSION_KEY)
+  if (!session) state.reloadedAt = null
   if (session && !before) {
     logEvent(null, 'noise-start', { reason: session.reason })
     removeKey(LAST_STOP_KEY)
@@ -196,6 +200,15 @@ function bedNow(now: number): { empty: boolean | null, leftAt: number | null } {
   return { empty, leftAt: empty && times.length > 0 ? Math.max(...times) : null }
 }
 
+/** Someone is in bed now, or presence is making sure someone just got in. */
+function someoneInBed(now: number): boolean {
+  if (!sensorsFresh(now)) return false
+  return (['left', 'right'] as const).some((side) => {
+    const view = presenceOf(side)
+    return view.occupied === true || Boolean(view.returningSince)
+  })
+}
+
 export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): void {
   if (!on) {
     // A stop sent while it is already fading out cuts the fade short.
@@ -204,7 +217,7 @@ export function setNoise(on: boolean, reason: NoiseReason, now = Date.now()): vo
     if (BY_HAND.includes(reason)) writeKey(HAND_STOP_KEY, now)
   }
   else if (!loadSession()) {
-    saveSession({ reason, startedAt: now }, reason, now)
+    saveSession({ reason, startedAt: now, inBed: someoneInBed(now) }, reason, now)
     // Starting it again by hand takes back an earlier stop by hand.
     if (BY_HAND.includes(reason)) removeKey(HAND_STOP_KEY)
   }
@@ -398,7 +411,7 @@ function handStoppedTonight(nights: SideNight[]): boolean {
 
 function startByItself(reason: NoiseReason, now: number): void {
   if (loadSession(now)) return
-  saveSession({ reason, startedAt: now }, reason, now)
+  saveSession({ reason, startedAt: now, inBed: someoneInBed(now) }, reason, now)
 }
 
 /**
@@ -408,8 +421,10 @@ function startByItself(reason: NoiseReason, now: number): void {
  */
 function startWhenInBed(nights: SideNight[], now: number): void {
   if (!sensorsFresh(now)) return
+  // Only a stop that can leave someone in bed, at the longest length, waits for them to get up and back in.
+  // After an empty-bed stop anyone in bed is back, though presence may date their return a minute before it.
   const last = readKey<{ why: string, at: number }>(LAST_STOP_KEY)
-  const endedAt = last && !BY_HAND.includes(last.why) ? last.at : null
+  const endedAt = last?.why === 'longest length' ? last.at : null
   const settled = nights.some(({ side, opensAt }) => {
     const { occupied, since } = presenceOf(side)
     if (opensAt === null || occupied !== true || since === null) return false

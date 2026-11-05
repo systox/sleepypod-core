@@ -26,6 +26,7 @@ vi.mock('../presence/collector', () => ({
 }))
 vi.mock('../smart/following', () => ({
   bedState: () => ({ bedMode: 'two', left: { awayMode: h.away.left }, right: { awayMode: h.away.right } }),
+  bedPresenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] }),
 }))
 vi.mock('../smart/runner', () => ({
   windowsOf: (side: 'left' | 'right', now: number, hours?: { hoursLate: number }) => {
@@ -247,6 +248,30 @@ describe('a white noise session', () => {
     inBed('right', NOW + 8 * MIN)
     syncNoise(NOW + 13 * MIN)
     expect(noiseStatus().on).toBe(true)
+  })
+
+  it('Smart resumes for someone back a minute before an empty-bed stop, whose return presence dates before it', () => {
+    setPodSettings({ noiseStart: 'smart', noiseSide: 'right', detection: 'live' })
+    h.bedtimes = { left: null, right: NOW }
+    inBed('right', NOW - 5 * MIN)
+    syncNoise(NOW)
+    outOfBed('right', NOW + MIN)
+    syncNoise(NOW + 11 * MIN)
+    expect(noiseStatus().on).toBe(false)
+    // Back at NOW + 10.5, a moment before the stop; presence calls her in at 15.5, dated 10.5.
+    inBed('right', NOW + 10.5 * MIN)
+    syncNoise(NOW + 16 * MIN)
+    expect(noiseStatus()).toMatchObject({ on: true, reason: 'smart-start' })
+  })
+
+  it('counts an empty bed from Play for someone in bed then, though presence dates their exit before it', () => {
+    inBed('left', NOW - 60 * MIN)
+    setNoise(true, 'app', NOW)
+    outOfBed('left', NOW - 2 * MIN)
+    syncNoise(NOW + 9 * MIN)
+    expect(noiseStatus().on).toBe(true)
+    syncNoise(NOW + 10 * MIN)
+    expect(noiseStatus().on).toBe(false)
   })
 
   it('Smart starts only for a sleeper on a side that counts', () => {

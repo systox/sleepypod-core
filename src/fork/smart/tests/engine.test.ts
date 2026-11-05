@@ -338,13 +338,14 @@ describe('ending', () => {
     expect(back.state.outMs).toBe(27 * MIN)
   })
 
-  it('never dates an exit back across blind minutes', () => {
-    const state = advance(started(entered), entered + MIN, 8 * 60).state
-    const now = entered + 9 * HOUR
-    // Presence dates the exit an hour back, across a gap in the readings.
-    const step = tick(state, ctx(now, { occupied: false, leftAt: now - HOUR }))
-    expect(step.state.absentSince).toBe(now - 6 * MIN)
-    expect(step.state.phase).toBe('running')
+  it('counts only the minutes the curve ran when a trip paused it', () => {
+    const state = advance(started(entered), entered + MIN, 3 * 60).state
+    const leave = entered + 3 * HOUR + MIN
+    // Out 40 minutes, paused at 20, back at 40 but called at 45.
+    const out = advance(state, leave + 5 * MIN, 35, { occupied: false, leftAt: leave })
+    expect(out.state.pausedAt).not.toBeNull()
+    const back = tick(out.state, ctx(leave + 45 * MIN, { occupied: true, enteredAt: leave + 40 * MIN }))
+    expect(back.state.outMs).toBe((out.state.pausedAt as number) - leave)
   })
 
   it('counts the earliest end without time out of bed', () => {

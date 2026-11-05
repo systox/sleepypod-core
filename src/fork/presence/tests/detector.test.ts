@@ -35,6 +35,14 @@ function replay(start: PresenceState, spans: Array<[number, ...Pair]>): { state:
 }
 
 describe('in-bed detection', () => {
+  it('starts the count again after a gap in the readings, so a call is never dated across it', () => {
+    const blind = { w: null, v: null }
+    const { events } = replay(initialPresence(), [[10, EMPTY, EMPTY], [20, EMPTY, SLEEPER], [4, EMPTY, EMPTY], [30, blind, blind], [8, EMPTY, EMPTY]])
+    const out = events.find(e => e.kind === 'out')
+    // Out from minute 30, blind 34 to 63: the call counts only the minutes after the gap.
+    expect(out?.minute).toBeGreaterThanOrEqual(64)
+  })
+
   it('calls someone in once both signals agree, dated from the start of the run', () => {
     const { events } = replay(initialPresence(), [[10, EMPTY, EMPTY], [10, EMPTY, SLEEPER]])
     expect(events).toEqual([expect.objectContaining({ side: 'right', kind: 'in' })])

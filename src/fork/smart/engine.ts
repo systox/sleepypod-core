@@ -307,12 +307,8 @@ function tickRun(state: RunState, ctx: TickContext, events: Decision['events']):
     // Back in bed while presence makes sure of it: the out-of-bed rules wait, so they never act on someone lying there.
   }
   else {
-    // Counted from when they got up, not from when presence was sure of it,
-    // but never further back than presence takes to be sure: blind minutes don't count.
-    if (next.absentSince === null) {
-      const earliest = Math.max(next.startedAt ?? 0, now - (settings.minutesToCall + 1) * MINUTE)
-      next = { ...next, absentSince: Math.min(now, Math.max(ctx.leftAt ?? now, earliest)) }
-    }
+    // Counted from when they got up, not from when presence was sure of it.
+    if (next.absentSince === null) next = { ...next, absentSince: Math.min(now, Math.max(ctx.leftAt ?? now, next.startedAt ?? 0)) }
     const absentSince = next.absentSince as number
     const out = now - absentSince
     const [firstStep, secondStep, thirdStep] = settings.tripStepMinutes.map(m => m * MINUTE)
@@ -377,6 +373,8 @@ function returnToBed(state: RunState, ctx: TickContext, events: Decision['events
   const out = Math.max(0, Math.min(now, ctx.enteredAt ?? now) - (state.absentSince as number))
   const paused = state.pausedAt
   const moved = paused === null ? 0 : now - paused
+  // Out of bed while the curve still ran: up to the pause, if there was one.
+  const ranOut = paused === null ? out : Math.min(out, paused - (state.absentSince as number))
   const longAbsence = out >= settings.tripStepMinutes[1] * MINUTE
   const next: RunState = {
     ...state,
@@ -384,7 +382,7 @@ function returnToBed(state: RunState, ctx: TickContext, events: Decision['events
     pausedAt: null,
     offForTrip: false,
     curveZeroAt: (state.curveZeroAt as number) + moved,
-    outMs: state.outMs + Math.max(0, out - moved),
+    outMs: state.outMs + Math.max(0, ranOut),
     backstopFrom: longAbsence ? now : state.backstopFrom,
     lastWriteAt: paused === null && !state.offForTrip ? state.lastWriteAt : now,
     note: null,

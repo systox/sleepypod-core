@@ -167,13 +167,19 @@ async function followHold(side: Side, leader: Side, mark: FollowMark, now: numbe
 /** End the hold carried from the home side, if this side still has it. */
 async function endHold(side: Side, mark: FollowMark): Promise<void> {
   if (!mark.hold) return
-  const until = mark.hold.until
-  mark.hold = null
-  const controller = getTemperatureController()
-  const status = controller.status(side)
-  if (status.source !== 'manual' || status.holdUntil !== until) return
-  if (status.blocked === null) await controller.resume(side)
-  else await withSideLock(side, async () => controller.clearHoldLocked(side))
+  try {
+    const controller = getTemperatureController()
+    const status = controller.status(side)
+    if (status.source === 'manual' && status.holdUntil === mark.hold.until) {
+      if (status.blocked === null) await controller.resume(side)
+      else await withSideLock(side, async () => controller.clearHoldLocked(side))
+    }
+    mark.hold = null
+  }
+  catch (error) {
+    // Kept, so the next tick tries again.
+    console.warn(`[fork] ${side} ending a carried hold failed:`, error instanceof Error ? error.message : error)
+  }
 }
 
 /** The side holds because the home side does, so its Smooth return comes from there too. */

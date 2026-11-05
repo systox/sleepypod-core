@@ -14,6 +14,7 @@ const SIDES: Side[] = ['left', 'right']
 const VIBRATION_WINDOW = 5
 const MIN_VIBRATION_SAMPLES = 3
 const EMPTY_PROOF_MINUTES = 5
+const MINUTE = 60_000
 export const DEFAULT_EMPTY_LEVEL: Record<Side, number> = { left: 5125, right: 5150 }
 
 export interface PresenceSideConfig {
@@ -128,8 +129,11 @@ export function stepPresence(previous: PresenceState, reading: MinuteReading, co
       next[side] = { ...current, run: 0, runSince: null }
       continue
     }
-    const run = current.run + 1
-    const runSince = current.runSince ?? reading.ts
+    // Straight minutes only: a gap in the readings starts the count again, so a
+    // call is never dated back across minutes nobody could see.
+    const unbroken = current.runSince === null || reading.ts - current.runSince <= current.run * MINUTE
+    const run = (unbroken ? current.run : 0) + 1
+    const runSince = unbroken ? current.runSince ?? reading.ts : reading.ts
     if (run < config[side].minutesToCall) {
       next[side] = { ...current, run, runSince }
       continue
