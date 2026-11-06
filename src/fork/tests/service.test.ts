@@ -1,33 +1,34 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const calls = vi.hoisted(() => [] as string[])
+const h = vi.hoisted(() => ({ live: true }))
 
 vi.mock('../smart/runner', () => ({
   tickSide: vi.fn(async (side: string) => {
     calls.push(`tick ${side}`)
   }),
-  runStateOf: vi.fn(() => ({ lastWriteAt: 5 })),
-  setRunAside: vi.fn(),
-  noteSwitchedOn: vi.fn(),
 }))
-vi.mock('../smart/following', () => ({
-  bedState: () => ({}),
-  // The right side is away and follows the left.
-  smartSourceOf: () => 'left',
-  smartStartFor: () => true,
-  syncFollowing: vi.fn(async (side: string, _state: unknown, _live: boolean, homeWriteAt: number | null) => {
-    calls.push(`follow ${side} ${homeWriteAt}`)
-    return side === 'right' ? 'started' : null
+vi.mock('../oneSide', () => ({
+  serviceLive: () => h.live,
+  bedConfiguration: () => ({}),
+  // The right side is away, so the whole bed is the left's.
+  bedOwnerOf: () => 'left',
+}))
+vi.mock('../smart/oneSideNight', () => ({
+  forgetOneSide: vi.fn(() => {
+    calls.push('forget')
   }),
-  releaseFollowing: vi.fn(),
+  syncOneSide: vi.fn(async (side: string) => {
+    calls.push(`one side ${side}`)
+  }),
+  releaseOneSide: vi.fn(),
 }))
-vi.mock('../settings', () => ({ getPodSettings: () => ({ detection: 'live', ownershipStaleMinutes: 2 }) }))
+vi.mock('../settings', () => ({ getPodSettings: () => ({ detection: 'live', ownershipStaleMinutes: 2 }), getSideSettings: () => ({ smartStart: true }) }))
 vi.mock('../weeks', () => ({ syncRotation: vi.fn() }))
 vi.mock('../holds', () => ({ clearPressWaits: vi.fn(), stepSmoothReturn: vi.fn() }))
 vi.mock('../presence/collector', () => ({ closeStaleMinute: vi.fn(), sensorsFresh: () => true }))
 
 import { guarded, smartTick } from '../service'
-import { setRunAside } from '../smart/runner'
 
 const settled = () => new Promise(resolve => setTimeout(resolve, 0))
 
@@ -67,9 +68,17 @@ describe('a guarded step', () => {
 })
 
 describe('a Smart start tick', () => {
-  it('settles a home side\'s following before its own rules, then brings the following side in line', async () => {
+  it('settles one side for both halves before Smart start\'s rules, and runs no rules for the empty half', async () => {
+    calls.length = 0
     await smartTick()
-    expect(calls).toEqual(['follow left null', 'tick left', 'follow right 5'])
-    expect(setRunAside).toHaveBeenCalledWith('right')
+    expect(calls).toEqual(['one side left', 'one side right', 'tick left'])
+  })
+
+  it('runs the start steps afresh after a silent spell, when the bed was stock (rule 11)', async () => {
+    calls.length = 0
+    h.live = false
+    await smartTick()
+    h.live = true
+    expect(calls).toEqual(['forget', 'one side left', 'one side right', 'tick left'])
   })
 })

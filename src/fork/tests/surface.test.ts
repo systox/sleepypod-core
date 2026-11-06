@@ -5,6 +5,10 @@ const h = vi.hoisted(() => ({
   status: { blocked: null as string | null, source: 'schedule' },
   target: 84 as number | null,
   occupied: true as boolean | null,
+  /** Per-half readings, for a one-side bed. */
+  halves: {} as Record<string, boolean | null>,
+  /** The home side while the bed is one side, or null. */
+  home: null as 'left' | 'right' | null,
   reconcile: vi.fn(),
 }))
 
@@ -23,8 +27,13 @@ vi.mock('@/src/temperature/instance', () => ({
   }),
 }))
 vi.mock('../presence/collector', () => ({
-  presenceOf: () => ({ occupied: h.occupied, since: null }),
+  presenceOf: (side: string) => ({ occupied: side in h.halves ? h.halves[side] : h.occupied, since: null }),
+  bedPresenceOf: () => ({ occupied: h.occupied, since: null }),
   sensorsFresh: () => true,
+}))
+vi.mock('../oneSide', () => ({
+  bedOwnerOf: (side: 'left' | 'right') => (h.home && side !== h.home ? h.home : side),
+  awayHalfOf: (side: 'left' | 'right') => (h.home === side ? (side === 'left' ? 'right' : 'left') : null),
 }))
 
 import { biometricsDb } from '@/src/db'
@@ -55,12 +64,40 @@ beforeEach(() => {
   h.status = { blocked: null, source: 'schedule' }
   h.target = 84
   h.occupied = true
+  h.halves = {}
+  h.home = null
   h.reconcile.mockReset()
   setSideSettings('left', { surfaceMode: 'on', surfaceLowF: 86, surfaceHighF: 88, surfaceStepMinutes: 20, warmestF: 90 })
 })
 afterAll(() => {
   runtime.running = false
   closeStore()
+})
+
+describe('surface range on a one-side bed', () => {
+  function surfaceRight(f: number): void {
+    const c = toCenti(f)
+    biometricsDb.insert(bedTemp).values({ timestamp: new Date(NOW - MIN), rightOuterTemp: c, rightCenterTemp: c, rightInnerTemp: c }).run()
+  }
+
+  it('reads the surface of the half the sleeper is lying on', async () => {
+    h.home = 'left'
+    h.halves = { left: false, right: true }
+    const [l, r] = [toCenti(87), toCenti(84)]
+    biometricsDb.insert(bedTemp).values({ timestamp: new Date(NOW - MIN), leftOuterTemp: l, leftCenterTemp: l, leftInnerTemp: l, rightOuterTemp: r, rightCenterTemp: r, rightInnerTemp: r }).run()
+    await stepSurface('left', NOW)
+    // The left half reads 87, in range; the sleeper is on the right half, which reads 84.
+    expect(surfaceOffset('left')).toBe(1)
+  })
+
+  it('leaves the empty half to the home side\'s offset', async () => {
+    h.home = 'left'
+    setSideSettings('right', { surfaceMode: 'on', surfaceLowF: 86, surfaceHighF: 88, surfaceStepMinutes: 20, warmestF: 90 })
+    surfaceRight(84)
+    await stepSurface('right', NOW)
+    expect(surfaceOffset('right')).toBe(0)
+    expect(h.reconcile).not.toHaveBeenCalled()
+  })
 })
 
 describe('surface range', () => {

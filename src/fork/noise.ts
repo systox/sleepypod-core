@@ -15,10 +15,10 @@ import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_proces
 import { promisify } from 'node:util'
 import type { Side } from '@/src/hardware/types'
 import { activeSleeperSides } from '@/src/lib/singleSleeper'
-import { bedEmptiedAt, presenceOf, sensorsFresh } from './presence/collector'
+import { bedEmptiedAt, bedPresenceOf, presenceOf, sensorsFresh } from './presence/collector'
 import type { ForkPodSettings } from './settings'
 import { getPodSettings, getSideSettings } from './settings'
-import { bedPresenceOf, bedState } from './smart/following'
+import { bedConfiguration } from './oneSide'
 import { runStateOf, windowsOf } from './smart/runner'
 import { logEvent, readKey, removeKey, writeKey } from './store'
 
@@ -443,7 +443,7 @@ function startWhenInBed(nights: SideNight[], now: number): void {
  */
 function startNoiseByItself(pod: ForkPodSettings, now: number): boolean | null {
   try {
-    const nights = noiseSides(pod, activeSleeperSides(bedState())).map(side => nightOf(side, now))
+    const nights = noiseSides(pod, activeSleeperSides(bedConfiguration())).map(side => nightOf(side, now))
     if (nights.length === 0 || handStoppedTonight(nights)) return false
     if (pod.noiseStart === 'clock') {
       const bedHours = nights.some(night => night.scheduled)

@@ -56,8 +56,6 @@ export const podSettingsSchema = z.object({
   maxFailedStartups: z.number().int().min(1).max(20),
   /** After a power cut or restart, turn a side back on that was on and is still inside its curve. */
   resumeAfterPowerCut: z.boolean(),
-  /** An empty side that follows the home sleeper's schedule takes their Smart start too. */
-  followSmartStart: z.boolean(),
   /**
    * White noise starts by itself: never, at the start time of noiseSide's
    * curve, or when Smart start begins that sleeper's curve (the start time
@@ -133,7 +131,6 @@ export const DEFAULT_POD_SETTINGS: ForkPodSettings = {
   timerRefreshHours: 6,
   maxFailedStartups: 3,
   resumeAfterPowerCut: false,
-  followSmartStart: false,
   noiseStart: 'off',
   noiseSide: 'either',
   noiseVolume: 20,

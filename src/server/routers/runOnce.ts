@@ -11,6 +11,7 @@ import { withSideLock } from '@/src/hardware/sideLock'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { sideSchema, temperatureSchema, timeStringSchema } from '@/src/server/validation-schemas'
 import { timeToDate } from '@/src/scheduler/timeUtils'
+import { refuseAwayHalfPlan } from '@/src/fork/oneSide'
 
 const setPointSchema = z.object({
   time: timeStringSchema,
@@ -39,6 +40,7 @@ export const runOnceRouter = router({
       // Fail fast before cancelling the existing session — starting a session
       // powers the side on, which a tripped pump stall guard must block.
       assertPumpStallNotBlocked(input.side)
+      refuseAwayHalfPlan(input.side)
 
       const jobManager = await getJobManager()
 

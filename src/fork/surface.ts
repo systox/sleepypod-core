@@ -9,7 +9,8 @@ import { biometricsDb } from '@/src/db'
 import { bedTemp } from '@/src/db/biometrics-schema'
 import { MIN_TEMP, type Side } from '@/src/hardware/types'
 import { getTemperatureController } from '@/src/temperature/instance'
-import { presenceOf, sensorsFresh } from './presence/collector'
+import { awayHalfOf, bedOwnerOf } from './oneSide'
+import { bedPresenceOf, presenceOf, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
 import { getSideSettings } from './settings'
 import { logEvent } from './store'
@@ -77,10 +78,11 @@ function clear(side: Side): void {
 /** One check: step the offset 1°F toward the range, no faster than the side's step time. */
 export async function stepSurface(side: Side, now = Date.now()): Promise<void> {
   const settings = getSideSettings(side)
-  if (settings.surfaceMode === 'off') return clear(side)
+  // The empty half of a one-side bed takes the home side's offset with its plan.
+  if (settings.surfaceMode === 'off' || bedOwnerOf(side) !== side) return clear(side)
   const controller = getTemperatureController()
   const status = controller.status(side)
-  const occupied = sensorsFresh(now) ? presenceOf(side).occupied : null
+  const occupied = sensorsFresh(now) ? bedPresenceOf(side).occupied : null
   if (status.blocked !== null || occupied === false) return clear(side)
   // Sensors blind, or someone chose a temperature: leave everything as it is.
   if (occupied !== true || status.source === 'manual') return
@@ -89,7 +91,7 @@ export async function stepSurface(side: Side, now = Date.now()): Promise<void> {
   // Switching between Watch and On starts again from the curve.
   const current = state.live === live ? state : { offset: 0, stepAt: 0, warmest: settings.warmestF, live }
   if (now - current.stepAt < settings.surfaceStepMinutes * MINUTE) return
-  const surface = readSurface(side, now)
+  const surface = readSurface(surfaceHalfOf(side), now)
   const target = controller.baselineTarget(side)
   if (surface === null || target === null) return
   const want = surface < settings.surfaceLowF ? 1 : surface > settings.surfaceHighF ? -1 : 0
@@ -101,6 +103,18 @@ export async function stepSurface(side: Side, now = Date.now()): Promise<void> {
   surfaces.set(side, { offset, stepAt: now, warmest: settings.warmestF, live })
   logEvent(side, live ? 'surface-step' : 'surface-watch', { surface: Math.round(surface * 10) / 10, curve: live ? target - current.offset : target, offset }, now)
   if (live) await controller.reconcile(side)
+}
+
+/** The half whose surface the sleeper is on: on a one-side bed, the empty half when only it shows them. */
+function surfaceHalfOf(side: Side): Side {
+  const away = awayHalfOf(side)
+  if (away === null || presenceOf(side).occupied === true) return side
+  return presenceOf(away).occupied === true ? away : side
+}
+
+/** Forget a half's offset, when the half stops having a plan of its own. */
+export function clearSurface(side: Side): void {
+  clear(side)
 }
 
 export function clearSurfaces(): void {

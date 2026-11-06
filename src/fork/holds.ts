@@ -15,7 +15,7 @@ import { MAX_HOLD_MS } from '@/src/temperature/controller'
 import { getTemperatureController } from '@/src/temperature/instance'
 import { deviceTimezone } from './clock'
 import { observeMiddle } from './middleButton'
-import { carriesHomeHold, carryHomeHold, followingOf } from './smart/following'
+import { awayHalfOf, bedOwnerOf, controlSideOf, lastWrittenTo, noteMeasured, oweWrite } from './oneSide'
 import { noteSmartPress } from './smart/runner'
 import { runtime } from './runtime'
 import { getPodSettings, getSideSettings } from './settings'
@@ -32,6 +32,8 @@ interface PressWait {
   timer: ReturnType<typeof setTimeout>
   wasOn: boolean
   buttons: string[]
+  /** The bed's planned target when the burst began, before the firmware's move. */
+  before: number | null
 }
 
 interface Fade {
@@ -112,7 +114,8 @@ export function observePress(frame: Record<string, unknown>): void {
     }
     if (press?.button !== 'top' && press?.button !== 'bottom') continue
     const waiting = presses.get(side)
-    const wasOn = waiting?.wasOn ?? getTemperatureController().status(side).blocked === null
+    const status = waiting ? null : getTemperatureController().status(side)
+    const wasOn = waiting?.wasOn ?? status?.blocked === null
     // On a side that's on, the firmware changes temperature only on a held
     // press and ignores a short click, so the fork must too, or a brushed
     // button holds the curve. On an off side the firmware does nothing either
@@ -120,38 +123,45 @@ export function observePress(frame: Record<string, unknown>): void {
     if (wasOn && press.type === 'short') continue
     if (waiting) clearTimeout(waiting.timer)
     const buttons = [...(waiting?.buttons ?? []), press.button]
+    // Measured from the plan as the burst began, so a change to the bed during the wait isn't counted as the press.
+    const before = waiting ? waiting.before : status?.targetTemperature ?? null
     const timer = setTimeout(() => {
       presses.delete(side)
-      void settlePress(side, wasOn, buttons).catch((error) => {
+      void settlePress(side, wasOn, buttons, before).catch((error) => {
         console.warn(`[fork] ${side} press failed:`, error instanceof Error ? error.message : error)
+      }).finally(() => {
+        if (!presses.has(side)) runtime.pressing.delete(side)
       })
     }, getPodSettings().pressWaitSeconds * 1000)
     timer.unref()
-    presses.set(side, { timer, wasOn, buttons })
+    presses.set(side, { timer, wasOn, buttons, before })
+    runtime.pressing.add(side)
   }
 }
 
 export function clearPressWaits(): void {
   for (const wait of presses.values()) clearTimeout(wait.timer)
   presses.clear()
+  runtime.pressing.clear()
 }
 
-export async function settlePress(side: Side, wasOn: boolean, buttons: string[]): Promise<void> {
-  logEvent(side, 'press', { buttons })
-  // With the other sleeper away, the side that follows the home sleeper has
-  // their buttons, unless someone took it out of the follow for tonight.
-  const follow = followingOf(side)
-  const home = follow && !follow.dismissed ? follow.leader : side
+export async function settlePress(side: Side, wasOn: boolean, buttons: string[], before: number | null = null): Promise<void> {
+  // While the bed is one side, the empty half's buttons are the home sleeper's,
+  // and the press is theirs: logged once, under the home side.
+  const home = controlSideOf(side)
+  logEvent(home, 'press', home === side ? { buttons } : { buttons, from: side })
   if (!wasOn) {
     await noteSmartPress(home)
     return
   }
   const pod = getPodSettings()
-  if (home !== side && await pressForHome(side, home, pod.holdMinutes)) {
-    fades.delete(home)
+  if (home !== side) {
+    await pressForHome(side, home, before, pod.holdMinutes)
     return
   }
-  if (pod.holdMinutes === 0) return
+  // On a one-side bed a firmware move left standing would reach only this half, so the press always holds.
+  const oneSide = awayHalfOf(side) !== null
+  if (pod.holdMinutes === 0 && !oneSide) return
   await withSideLock(side, async () => {
     const controller = getTemperatureController()
     // A hold can power a side on, so a press must not undo someone turning it off.
@@ -159,34 +169,42 @@ export async function settlePress(side: Side, wasOn: boolean, buttons: string[])
     const target = currentTarget(side)
     const landed = target === null || fahrenheitToLevel(Math.round(target)) === 0 ? STEP_OFF_NEUTRAL_F : Math.round(target)
     const temperature = Math.min(landed, getSideSettings(side).warmestF)
-    await controller.setManualLocked(side, temperature, pod.holdMinutes * MINUTE)
+    await controller.setManualLocked(side, temperature, pod.holdMinutes > 0 ? pod.holdMinutes * MINUTE : defaultHoldMs(side))
   })
   fades.delete(side)
 }
 
 /**
- * A press on a side that follows the home sleeper: the firmware moved this
- * side, so the home side moves by as much and holds, and that hold is carried
- * back here at once, so a second press counts from it. False when the home
- * side is off or can't take it, so the press stays on this side as before.
+ * A press on the empty half of a one-side bed. The firmware moved only that
+ * half, so the home side moves by as much and holds, and the empty half is
+ * rewritten from the plan. With the home side off or blocked the press is
+ * dropped: the empty half follows it off within a second. With Hold after
+ * adjustment off, the hold lasts until the curve's next change, since a
+ * firmware move left standing would reach only the pressed half.
  */
-async function pressForHome(side: Side, home: Side, holdMinutes: number): Promise<boolean> {
+async function pressForHome(side: Side, home: Side, before: number | null, holdMinutes: number): Promise<void> {
   const controller = getTemperatureController()
-  const before = controller.status(side).targetTemperature
+  // Read before any wait: this is the firmware's move, which the half's step leaves alone until the press settles.
   const target = currentTarget(side)
   // As for a press on the home side: sleepypod reads level 0 as off, so a press resting there counts as neutral.
   const landed = target === null || fahrenheitToLevel(Math.round(target)) === 0 ? STEP_OFF_NEUTRAL_F : Math.round(target)
-  const step = before === null ? 0 : landed - Math.round(before)
-  const held = await withSideLock(home, async () => {
+  // The move is measured from what sleepypod last wrote to this half: a write during the wait erases the
+  // move and moves this base with it, so the press reads as no step rather than as the bed's change.
+  const base = lastWrittenTo(side) ?? before
+  const step = base === null ? 0 : landed - Math.round(base)
+  // The home side takes this move now; a quick second press, before the half is rewritten, counts only its own.
+  noteMeasured(side, landed)
+  await withSideLock(home, async () => {
     const status = controller.status(home)
-    if (status.blocked !== null || controller.turnedOff(home) || status.targetTemperature === null) return false
-    const temperature = Math.max(MIN_TEMP, Math.min(Math.round(status.targetTemperature) + step, getSideSettings(home).warmestF, MAX_TEMP))
+    if (status.blocked !== null || controller.turnedOff(home)) return
+    const from = status.targetTemperature ?? currentTarget(home)
+    if (from === null) return
+    const temperature = Math.max(MIN_TEMP, Math.min(Math.round(from) + step, getSideSettings(home).warmestF, MAX_TEMP))
     await controller.setManualLocked(home, temperature, holdMinutes > 0 ? holdMinutes * MINUTE : defaultHoldMs(home))
-    logEvent(home, 'press-for-home', { from: side, step })
-    return true
   })
-  if (held) await carryHomeHold(side)
-  return held
+  // Rewritten from the plan even when the bed's target didn't change, at the warmest say.
+  oweWrite(side)
+  fades.delete(home)
 }
 
 /** One Smooth return check: step the hold 1°F toward the curve as it's about to end. */
@@ -199,8 +217,11 @@ export async function stepSmoothReturn(side: Side, now = Date.now()): Promise<vo
     return
   }
   if (status.holdUntil - now > STEP_LEAD_MS) return
-  // A side following the home sleeper takes each step from the home side.
-  if (carriesHomeHold(side, status.holdUntil)) return
+  // The empty half of a one-side bed holds the home side's hold, and that side's steps reach it.
+  if (bedOwnerOf(side) !== side) {
+    fades.delete(side)
+    return
+  }
   const curve = controller.baselineTarget(side)
   const held = status.targetTemperature
   if (curve === null || held === null) return
@@ -228,4 +249,9 @@ export function fadeOf(side: Side, now = Date.now()): { curve: number, by: numbe
   const held = controller.status(side).targetTemperature
   if (curve === null || held === null) return null
   return { curve, by: now + Math.abs(curve - held) * 60 / getPodSettings().smoothRatePerHour * MINUTE }
+}
+
+/** Forget a half's Smooth return fade, when the half stops having a plan of its own. */
+export function clearFade(side: Side): void {
+  fades.delete(side)
 }

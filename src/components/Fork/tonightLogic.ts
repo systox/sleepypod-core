@@ -1,6 +1,6 @@
 import type { RunState } from '@/src/fork/smart/engine'
 import type { ForkSideSettings } from '@/src/fork/settings'
-import type { FollowView } from '@/src/fork/smart/following'
+import type { FollowView } from '@/src/fork/smart/oneSideNight'
 
 const MINUTE = 60_000
 

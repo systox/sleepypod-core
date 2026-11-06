@@ -13,6 +13,7 @@ import { broadcastMutationStatus } from '@/src/streaming/broadcastMutationStatus
 import { nightRows, type NightPower } from '@/src/lib/nightDay'
 import { defaultHoldMs } from '@/src/fork/holds'
 import { withSurfaceOffset } from '@/src/fork/surface'
+import { tickHalf, withOneSide } from '@/src/fork/oneSide'
 import { alarmTemperatureTargets, recurringTarget, sessionTarget, type AlarmOccurrenceCache, type RecurringOccurrenceCache, type WeeklyTarget } from './baseline'
 import { TemperatureController, type TemperatureRequest } from './controller'
 
@@ -122,7 +123,7 @@ const globalState = globalThis as typeof globalThis & {
 
 export function getTemperatureController(): TemperatureController {
   if (!globalState.__sp_temperatureController) {
-    globalState.__sp_temperatureController = new TemperatureController({
+    globalState.__sp_temperatureController = new TemperatureController(withOneSide({
       now: Date.now,
       withSideLock,
       readHold: (side) => {
@@ -189,7 +190,7 @@ export function getTemperatureController(): TemperatureController {
         }
       },
       publish: () => broadcastMutationStatus(),
-    })
+    }))
   }
   return globalState.__sp_temperatureController
 }
@@ -229,7 +230,7 @@ export async function startTemperatureController(): Promise<void> {
     for (const side of ['left', 'right'] as const) {
       if (!service.running || ticking.has(side)) continue
       ticking.add(side)
-      const work = getTemperatureController().reconcile(side, false, () => service.running)
+      const work = tickHalf(getTemperatureController(), side, () => service.running)
         .then(() => {}, (error) => {
           console.warn(`[temperature] ${side} reconciliation failed:`, error)
         }).finally(() => {

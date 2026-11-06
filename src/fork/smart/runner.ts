@@ -8,14 +8,14 @@ import { db } from '@/src/db'
 import { powerSchedules, sideSettings, temperatureSchedules } from '@/src/db/schema'
 import type { Side } from '@/src/hardware/types'
 import { getTemperatureController } from '@/src/temperature/instance'
-import { presenceOf, sensorsFresh, takeEntry, twoBodies } from '../presence/collector'
+import { awayHalfOf, awayHalfReason, bedOwnerOf } from '../oneSide'
+import { bedPresenceOf, presenceOf, sensorsFresh, takeEntry, twoBodies } from '../presence/collector'
 import { takePersonPower } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
 import { caller } from '../caller'
 import { deviceTimezone } from '../clock'
 import { logEvent, readKey, writeKey } from '../store'
 import { buildCopy, windowsAround, type CurveRow, type PowerRow, type TonightWindow, type WindowHours } from './curves'
-import { bedPresenceOf, followerOf, followingOf } from './following'
 import { command, INITIAL_RUN, tick, type Action, type Command, type Decision, type RunState, type TickContext } from './engine'
 
 const HOUR = 3_600_000
@@ -54,7 +54,7 @@ function buildContext(side: Side, state: RunState, now: number): TickContext {
   // With the other sleeper away, the whole bed is this sleeper's: getting in on their side counts too.
   const presence = bedPresenceOf(side)
   const otherPresence = presenceOf(other)
-  const follower = followerOf(side)
+  const follower = awayHalfOf(side)
   const followerEntry = follower === null ? null : takeEntry(follower)
   const entry = takeEntry(side) ?? (followerEntry && { ...followerEntry, movedAcross: false })
   const person = takePersonPower(side, now)
@@ -114,7 +114,7 @@ async function apply(side: Side, decision: Decision, now: number): Promise<RunSt
   return state
 }
 
-/** A side that starts following the home sleeper sets its own run aside, and starts afresh once its sleeper is back. */
+/** The empty half of a one-side bed sets its own run aside, and starts afresh once its sleeper is back. */
 export function setRunAside(side: Side): void {
   writeKey(key(side), INITIAL_RUN)
 }
@@ -142,17 +142,9 @@ export function noteSwitchedOn(side: Side, now = Date.now()): void {
   if (window) writeKey(key(side), { ...runStateOf(side), windowFor: window.curve.bedtime })
 }
 
-function sideName(side: Side): string {
-  const name = db.select({ name: sideSettings.name }).from(sideSettings).where(eq(sideSettings.side, side)).get()?.name
-  return name || (side === 'left' ? 'Left' : 'Right')
-}
-
 export async function runCommand(side: Side, name: Command, now = Date.now()): Promise<RunState> {
-  const following = followingOf(side)
-  if (following) {
-    const why = following.why === 'away' ? 'its sleeper is away' : 'the bed is set up for one'
-    throw new Error(`This side follows ${sideName(following.leader)}'s curve and Smart start while ${why}, so its own Smart start is paused`)
-  }
+  const reason = awayHalfReason(side)
+  if (reason) throw new Error(reason)
   const state = runStateOf(side)
   return apply(side, command(state, name, buildContext(side, state, now)), now)
 }
@@ -163,7 +155,7 @@ export async function runCommand(side: Side, name: Command, now = Date.now()): P
  * an off side still sends a press record, so a setting keeps it off until then.
  */
 export async function noteSmartPress(side: Side): Promise<void> {
-  if (!getPodSettings().pressStartsClosedSide || !getSideSettings(side).smartStart || followingOf(side)) return
+  if (!getPodSettings().pressStartsClosedSide || !getSideSettings(side).smartStart || bedOwnerOf(side) !== side) return
   if (bedPresenceOf(side).occupied !== true) return
   const phase = runStateOf(side).phase
   if (phase === 'closed' || phase === 'idle') await runCommand(side, 'start-back')

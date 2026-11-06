@@ -21,6 +21,8 @@ interface ForkRuntime {
   /** Whether Smart start governs a side, read from the bed as it is when asked. The service sets it. */
   smartFor: (side: Side) => boolean
   personPower: Map<Side, PersonPowerMark>
+  /** Halves with a button press waiting to settle: the firmware's move there is still being measured. */
+  pressing: Set<Side>
 }
 
 const PERSON_MARK_FRESH_MS = 2 * 60_000
@@ -37,7 +39,10 @@ export const runtime: ForkRuntime = globalRuntime.__sp_forkRuntime ??= {
   detectionLive: false,
   smartFor: () => false,
   personPower: new Map(),
+  pressing: new Set(),
 }
+// A server reloaded in place keeps the runtime made before this field existed.
+runtime.pressing ??= new Set()
 
 /**
  * True while Smart start owns a side, so sleepypod's automatic power-ons skip

@@ -5,6 +5,7 @@
 import { renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Side } from '@/src/hardware/types'
+import { awayHalfOf } from '../oneSide'
 import { runtime } from '../runtime'
 import { getPodSettings, getSideSettings } from '../settings'
 import { forkDbPath, logEvent, readKey, writeKey } from '../store'
@@ -212,10 +213,38 @@ export function bedEmptiedAt(): number {
   return collector.bedEmptyAt
 }
 
+/**
+ * A sleeper's presence over the whole bed. While the bed is one side, lying
+ * on its empty half counts as being in bed: in on either half is in, since
+ * the first of them; empty means both are, since the last one left; a half
+ * showing someone back counts as returning. Any other side reads as itself.
+ */
+export function bedPresenceOf(side: Side): PresenceView {
+  const own = presenceOf(side)
+  const away = awayHalfOf(side)
+  if (away === null) return own
+  const views = [own, presenceOf(away)]
+  const times = (list: PresenceView[]) => list.map(view => view.since).filter((at): at is number => at !== null)
+  const inBed = views.filter(view => view.occupied === true)
+  if (inBed.length > 0) {
+    const since = times(inBed)
+    return { occupied: true, since: since.length > 0 ? Math.min(...since) : null, returningSince: null }
+  }
+  if (views.some(view => view.occupied === null)) return own
+  const since = times(views)
+  const returning = views.map(view => view.returningSince).filter((at): at is number => Boolean(at))
+  return { occupied: false, since: since.length > 0 ? Math.max(...since) : null, returningSince: returning.length > 0 ? Math.min(...returning) : null }
+}
+
 export function takeEntry(side: Side): { at: number, movedAcross: boolean } | null {
   const entry = collector.entries.get(side)
   collector.entries.delete(side)
   return entry ?? null
+}
+
+/** Count someone as having just got in on a side, as if presence had seen them get in. */
+export function noteEntry(side: Side, at = Date.now()): void {
+  collector.entries.set(side, { at, movedAcross: false })
 }
 
 /** Both sides show a body of their own, so a side waiting on a moved sleeper can start. */

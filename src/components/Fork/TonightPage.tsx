@@ -53,8 +53,7 @@ function SideCard({ side, name, otherName, view, now }: { side: Side, name: stri
       {run.note && <span className="text-[13px] text-fg-2">{run.note}</span>}
       {view.following && (
         <span className="text-[13px] text-fg-2">
-          {`${view.following.why === 'away' ? 'Away: this side' : 'Unused side: it'} follows ${otherName}'s curve and Smart start.`}
-          {view.following.dismissed && ` Turned off for now: it stays off until ${otherName}'s curve ends, or until it's turned back on.`}
+          {`The whole bed is ${otherName}'s while ${view.following.why === 'away' ? 'this side\'s sleeper is away' : 'it is set up for one'}: both halves run ${otherName}'s curve and Smart start, and the buttons on either half change both.`}
         </span>
       )}
       {view.resumedAt !== null && now - view.resumedAt < RESUMED_SHOWN_MS && (

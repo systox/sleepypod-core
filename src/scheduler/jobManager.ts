@@ -30,6 +30,7 @@ import { WakeWindows, slotBefore } from './wakeWindow'
 import { ALARM_HOLD_AFTER_MIN, alarmWarmupMinutes } from '@/src/temperature/baseline'
 import { nightDay, nightPowerKey, type NightPower } from '@/src/lib/nightDay'
 import { smartOwnsSide } from '@/src/fork/runtime'
+import { bedOwnerOf } from '@/src/fork/oneSide'
 
 const HEARTBEAT_INTERVAL_MS_DEFAULT = 60_000
 const HEARTBEAT_STALE_MS_DEFAULT = 90_000
@@ -100,7 +101,7 @@ export class JobManager {
         return []
       }
       const mirror = mirrorSideFor(side, away)
-      return mirror ? [side, mirror] : [side]
+      return mirror && bedOwnerOf(mirror) !== side ? [side, mirror] : [side]
     }
     catch (e) {
       console.warn(`[jobManager] could not read away mode for ${side}:`, e instanceof Error ? e.message : e)

@@ -18,6 +18,7 @@
  */
 
 import { markPersonPower } from '@/src/fork/runtime'
+import { controlSideOf } from '@/src/fork/oneSide'
 import { HapStatusError } from 'hap-nodejs'
 import type { HAPStatus } from 'hap-nodejs'
 import type { DacMonitor } from '@/src/hardware/dacMonitor'
@@ -191,6 +192,7 @@ export async function setTargetTemperature(
   side: Side,
   requestedF: number,
 ): Promise<void> {
+  side = controlSideOf(side)
   const f = clampF(requestedF)
   lastTargetF[side] = f
   await withSideLock(side, async () => {
@@ -218,6 +220,7 @@ export async function setTargetTemperature(
  * that the failed power-on left in an unknown state.
  */
 export async function setSidePowerOn(monitor: DacMonitor, side: Side): Promise<void> {
+  side = controlSideOf(side)
   assertNotGuardBlocked(side, `setPower(${side}, true)`)
   const prev = intendedPower[side]
   intendedPower[side] = true
@@ -252,6 +255,7 @@ export async function setSidePowerOn(monitor: DacMonitor, side: Side): Promise<v
 }
 
 export async function setSidePowerOff(monitor: DacMonitor, side: Side): Promise<void> {
+  side = controlSideOf(side)
   const prev = intendedPower[side]
   intendedPower[side] = false
   try {

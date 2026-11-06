@@ -1,4 +1,5 @@
 import { markPersonPower } from '@/src/fork/runtime'
+import { controlSideOf } from '@/src/fork/oneSide'
 import type { HardwareClient } from './client'
 import { MAX_TEMP, MIN_TEMP, type Side } from './types'
 import type { GestureEvent } from './dacMonitor'
@@ -117,6 +118,7 @@ export class GestureActionHandler {
     event: GestureEvent,
     gesture: TapGestureRow
   ): Promise<void> => {
+    event = { ...event, side: controlSideOf(event.side) }
     await withSideLock(event.side, async () => {
       // Step from the temperature SleepyPod itself has set (the controller's
       // selected target), not the firmware's reported target: the firmware
@@ -184,6 +186,7 @@ export class GestureActionHandler {
     gesture: TapGestureRow
   ): Promise<void> => {
     if (gesture.alarmInactiveBehavior !== 'power') return
+    event = { ...event, side: controlSideOf(event.side) }
     await withSideLock(event.side, async () => {
       // Resolve the toggle after older queued commands have updated state.
       const current = await this.deps.findDeviceState(event.side)

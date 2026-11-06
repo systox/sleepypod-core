@@ -6,10 +6,12 @@ const h = vi.hoisted(() => ({
   setManualLocked: vi.fn(),
   target: 86 as number | null,
   turnedOff: false,
-  leader: null as 'left' | 'right' | null,
-  dismissed: false,
-  carried: false,
-  carry: vi.fn(),
+  /** The home side while the bed is one side, or null. */
+  home: null as 'left' | 'right' | null,
+  /** A half the pump guard holds, which keeps its own controls. */
+  guarded: null as 'left' | 'right' | null,
+  lastWritten: {} as Record<string, number>,
+  oweWrite: vi.fn(),
   sideStatus: {} as Record<string, Record<string, unknown>>,
 }))
 
@@ -24,11 +26,19 @@ vi.mock('@/src/temperature/instance', () => ({
 vi.mock('@/src/hardware/sideLock', () => ({ withSideLock: (_side: string, fn: () => unknown) => fn() }))
 const noteSmartPress = vi.hoisted(() => vi.fn())
 vi.mock('../smart/runner', () => ({ noteSmartPress }))
-vi.mock('../smart/following', () => ({
-  followingOf: () => (h.leader ? { leader: h.leader, why: 'away', dismissed: h.dismissed } : null),
-  carriesHomeHold: () => h.carried,
-  carryHomeHold: h.carry,
-}))
+vi.mock('../oneSide', () => {
+  const owner = (side: 'left' | 'right') => (h.home && side !== h.home ? h.home : side)
+  return {
+    bedOwnerOf: owner,
+    controlSideOf: (side: 'left' | 'right') => (side === h.guarded ? side : owner(side)),
+    awayHalfOf: (side: 'left' | 'right') => (h.home === side ? (side === 'left' ? 'right' : 'left') : null),
+    lastWrittenTo: (side: string) => h.lastWritten[side] ?? null,
+    noteMeasured: (side: string, temperature: number) => {
+      h.lastWritten[side] = temperature
+    },
+    oweWrite: h.oweWrite,
+  }
+})
 vi.mock('@/src/db', () => ({
   db: {
     select: () => ({ from: () => ({ where: () => ({ get: () => ({ target: h.target }) }) }) }),
@@ -48,10 +58,10 @@ beforeEach(() => {
   closeStore()
   runtime.running = true
   h.status = { source: 'manual', holdUntil: NOW + 30_000, blocked: null, targetTemperature: 86, requestId: 'manual' }
-  h.leader = null
-  h.dismissed = false
-  h.carried = false
-  h.carry.mockReset()
+  h.home = null
+  h.guarded = null
+  h.lastWritten = {}
+  h.oweWrite.mockReset()
   h.sideStatus = {}
   h.baseline = 81
   h.target = 86
@@ -65,56 +75,132 @@ afterEach(() => {
   closeStore()
 })
 
-describe('presses on a side that follows the home sleeper', () => {
-  // Right is away and follows left: both at 84 before the press, which took right to 87.
-  const following = () => {
-    h.leader = 'left'
+describe('presses on the empty half of a one-side bed (rule 5)', () => {
+  // Right is away, so the bed is left's: both at 84, and sleepypod last wrote 84 to right. The press took right to 87.
+  const oneSide = () => {
+    h.home = 'left'
     h.target = 87
+    h.lastWritten = { right: 84 }
     h.sideStatus = {
-      right: { source: 'run-once', holdUntil: null, blocked: null, targetTemperature: 84, requestId: 'copy' },
+      right: { source: 'run-once', holdUntil: null, blocked: null, targetTemperature: 84, requestId: 'curve' },
       left: { source: 'run-once', holdUntil: null, blocked: null, targetTemperature: 84, requestId: 'curve' },
     }
   }
 
-  it('move the home side by as much, and hold it', async () => {
-    following()
+  it('moves the home side by as much as the firmware moved the pressed half, holds it, and rewrites the half', async () => {
+    oneSide()
     setPodSettings({ holdMinutes: 60 })
     await settlePress('right', true, ['top'])
     expect(h.setManualLocked).toHaveBeenCalledWith('left', 87, 60 * MIN)
-    expect(listEvents(0, Date.now() + 1, ['press-for-home'])).toHaveLength(1)
-    // Carried back at once, so a second press counts from the new hold.
-    expect(h.carry).toHaveBeenCalledWith('right')
+    expect(h.oweWrite).toHaveBeenCalledWith('right')
+    // Logged once, as the home sleeper's press, with the half it came from.
+    const presses = listEvents(0, Date.now() + 1, ['press'])
+    expect(presses).toHaveLength(1)
+    expect(presses[0].side).toBe('left')
+    expect(JSON.parse(presses[0].detail as string)).toEqual({ buttons: ['top'], from: 'right' })
   })
 
-  it('count a press resting on neutral as the neutral temperature, as on the home side', async () => {
-    following()
+  it('does not count a change to the bed during the wait as part of the press', async () => {
+    oneSide()
+    // The curve moved the bed to 86 during the wait, and that write to right erased the firmware's move.
+    h.sideStatus.left = { ...h.sideStatus.left, targetTemperature: 86 }
+    h.lastWritten = { right: 86 }
+    h.target = 86
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'], 84)
+    // Measured against the plan at the first press, this would have read as a 2°F press and held 88.
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 86, 60 * MIN)
+  })
+
+  it('counts a quick second press only for its own move, before the half is rewritten', async () => {
+    oneSide()
+    h.lastWritten = { right: 80 }
+    h.sideStatus.left = { ...h.sideStatus.left, targetTemperature: 80 }
+    h.target = 83
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenLastCalledWith('left', 83, 60 * MIN)
+    // The home side now holds 83; the half hasn't been rewritten yet when the next press moves it to 86.
+    h.sideStatus.left = { ...h.sideStatus.left, targetTemperature: 83 }
+    h.target = 86
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenLastCalledWith('left', 86, 60 * MIN)
+  })
+
+  it('measures from the bed\'s plan at the first press before anything was written since the server started', async () => {
+    oneSide()
+    h.lastWritten = {}
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'], 84)
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 87, 60 * MIN)
+  })
+
+  it('counts a press resting on neutral as the neutral temperature, as on the home side', async () => {
+    oneSide()
     h.target = null
     setPodSettings({ holdMinutes: 60 })
     await settlePress('right', true, ['bottom'])
     expect(h.setManualLocked).toHaveBeenCalledWith('left', 83, 60 * MIN)
   })
 
-  it('stay on a side someone took out of the follow for tonight', async () => {
-    following()
-    h.dismissed = true
+  it('pulls the home side\'s hold back to its warmest setting', async () => {
+    oneSide()
+    h.target = 95
     setPodSettings({ holdMinutes: 60 })
+    setSideSettings('left', { warmestF: 88 })
     await settlePress('right', true, ['top'])
-    expect(h.setManualLocked).toHaveBeenCalledWith('right', 87, 60 * MIN)
-    expect(h.carry).not.toHaveBeenCalled()
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 88, 60 * MIN)
   })
 
-  it('stay on the pressed side while the home side is off', async () => {
-    following()
+  it('drops the press while the home side is off, turned off or blocked, as the half follows it off', async () => {
+    oneSide()
+    setPodSettings({ holdMinutes: 60 })
     h.sideStatus.left = { ...h.sideStatus.left, blocked: 'off' }
-    setPodSettings({ holdMinutes: 60 })
     await settlePress('right', true, ['top'])
-    expect(h.setManualLocked).toHaveBeenCalledWith('right', 87, 60 * MIN)
+    h.sideStatus.left = { ...h.sideStatus.left, blocked: 'safety' }
+    await settlePress('right', true, ['top'])
+    h.sideStatus.left = { ...h.sideStatus.left, blocked: null }
+    h.turnedOff = true
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).not.toHaveBeenCalled()
   })
 
-  it('pass a press on an off side to the home sleeper Smart start', async () => {
-    following()
+  it('passes a press on an off half to the home sleeper\'s Smart start', async () => {
+    oneSide()
     await settlePress('right', false, ['top'])
     expect(noteSmartPress).toHaveBeenCalledWith('left')
+  })
+
+  it('leaves a half the pump guard holds to the guard', async () => {
+    oneSide()
+    h.guarded = 'right'
+    h.sideStatus.right = { ...h.sideStatus.right, blocked: 'safety' }
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).not.toHaveBeenCalled()
+  })
+
+  it('holds even with Hold after adjustment off, since a move left standing would reach one half only', async () => {
+    oneSide()
+    setPodSettings({ holdMinutes: 0 })
+    await settlePress('right', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 87, undefined)
+    // The home side's own buttons too.
+    h.setManualLocked.mockClear()
+    h.target = 86
+    await settlePress('left', true, ['top'])
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 86, undefined)
+  })
+
+  it('bases the hold on the home side\'s reported temperature when it runs with no plan', async () => {
+    oneSide()
+    h.sideStatus.left = { ...h.sideStatus.left, source: null, targetTemperature: null }
+    h.lastWritten = { right: 77 }
+    h.target = 80
+    setPodSettings({ holdMinutes: 60 })
+    await settlePress('right', true, ['top'])
+    // Step +3 from the last write, on the home side's reported 80.
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 83, 60 * MIN)
   })
 })
 
@@ -177,7 +263,10 @@ describe('press reports from the cover', () => {
 
   it('holds after a held press, which the firmware acts on', async () => {
     observePress({ type: 'button-press', left: { button: 'top', type: 'long', count: 1 } })
+    // The half is marked while the press waits, so its one-side step leaves the firmware's move alone.
+    expect(runtime.pressing.has('left')).toBe(true)
     await vi.advanceTimersByTimeAsync(15_000)
+    expect(runtime.pressing.has('left')).toBe(false)
     expect(h.setManualLocked).toHaveBeenCalledWith('left', 87, 60 * MIN)
     expect(listEvents(0, Date.now() + 1, ['press'])).toHaveLength(1)
   })
@@ -231,9 +320,9 @@ describe('Smooth return', () => {
     expect(h.setManualLocked).not.toHaveBeenCalled()
   })
 
-  it('leaves the steps of a hold carried from the home side to the home side', async () => {
+  it('leaves the steps of the one hold to the home side on the empty half of a one-side bed', async () => {
     on()
-    h.carried = true
+    h.home = 'right'
     await stepSmoothReturn('left', NOW)
     expect(h.setManualLocked).not.toHaveBeenCalled()
   })

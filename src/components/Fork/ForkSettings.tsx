@@ -118,14 +118,6 @@ export function ForkSettings({ pod, left, right, names }: {
         <SettingRow label="Turn back on after a power cut" sub="A side that was on when the Pod lost power or restarted comes back on at the curve's point for the time, if its curve is still running.">
           <Toggle on={pod.resumeAfterPowerCut} label="Turn back on after a power cut" onChange={resumeAfterPowerCut => savePod.mutate({ patch: { resumeAfterPowerCut } })} />
         </SettingRow>
-        <SettingRow
-          label="Empty side follows Smart start"
-          sub={pod.followSmartStart
-            ? 'When an empty side matches the other side (the Away card at the bottom of the Schedule page), it takes the home sleeper\'s Smart start too: it comes on and goes off with their curve.'
-            : 'Off: an empty side that follows the home sleeper gets only their weekly schedule, at its set times.'}
-        >
-          <Toggle on={pod.followSmartStart} label="Empty side follows Smart start" onChange={followSmartStart => savePod.mutate({ patch: { followSmartStart } })} />
-        </SettingRow>
         <SettingRow label="Bed is empty now" sub="Use after changing bedding, with nobody on the bed.">
           <Button disabled={markEmpty.isPending} onClick={() => markEmpty.mutate()}>Mark empty</Button>
         </SettingRow>

@@ -8,13 +8,14 @@ import { clearPressWaits, stepSmoothReturn } from './holds'
 import { noteNightStart } from './nights'
 import { clearMiddleWaits } from './middleButton'
 import { clearStaleNoise, stopLeftoverPlayers, stopNoise, syncNoise } from './noise'
+import { bedConfiguration, bedOwnerOf, serviceLive } from './oneSide'
 import { syncPowerResume } from './powerResume'
 import { closeStaleMinute, sensorsFresh } from './presence/collector'
 import { runtime } from './runtime'
-import { getPodSettings } from './settings'
+import { getPodSettings, getSideSettings } from './settings'
 import { syncSelfTest } from './selftest'
-import { bedState, releaseFollowing, smartSourceOf, smartStartFor, syncFollowing } from './smart/following'
-import { noteSwitchedOn, runStateOf, setRunAside, tickSide } from './smart/runner'
+import { forgetOneSide, releaseOneSide, syncOneSide } from './smart/oneSideNight'
+import { tickSide } from './smart/runner'
 import { closeStore, dailyHousekeeping, readKey, storeProblem, writeKey } from './store'
 import { clearSurfaces, stepSurface } from './surface'
 import { syncRotation } from './weeks'
@@ -56,10 +57,14 @@ function refreshFlags(): void {
   runtime.lastBeat = Date.now()
 }
 
-/** Asked when sleepypod checks ownership, so an away change counts at once, not at the next tick. */
+/**
+ * Asked when sleepypod checks ownership, so an away change counts at once, not
+ * at the next tick. The empty half of a one-side bed answers with the home
+ * sleeper's setting: Smart start owns the whole bed or none of it.
+ */
 function smartFor(side: Side): boolean {
   try {
-    return smartStartFor(side)
+    return getSideSettings(bedOwnerOf(side)).smartStart
   }
   catch (error) {
     console.warn(`[fork] ${side} Smart start setting unreadable:`, error instanceof Error ? error.message : error)
@@ -74,34 +79,26 @@ function warnFailed(what: string) {
 }
 
 export const smartTick = async (): Promise<void> => {
+  // Read before the heartbeat below renews it: after a silent spell the bed was stock.
+  const wasLive = serviceLive()
   refreshFlags()
   if (runtime.disabled) return
+  if (!wasLive) forgetOneSide()
   const live = runtime.detectionLive
-  const beds = bedState()
-  const leaders = { left: smartSourceOf('left', beds), right: smartSourceOf('right', beds) }
-  // Even with detection not live, so a side that stops following lets go of its copy.
-  const follow = async (side: Side) => {
-    const leader = leaders[side]
-    const homeWriteAt = leader !== side ? runStateOf(leader).lastWriteAt : null
-    await syncFollowing(side, beds, live, homeWriteAt).then((result) => {
-      if (result === 'started') setRunAside(side)
-      if (result === 'back-in-bed') noteSwitchedOn(side)
-    }).catch(warnFailed(`${side} following`))
-  }
-  // Home sides first, so a side following one picks up this tick's change. A
-  // home side that has just stopped following settles that before its own
-  // rules run, so a sleeper back in bed doesn't have their curve begin again.
+  const beds = bedConfiguration()
+  // Even with detection not live, so a bed that stops being one side cleans up.
+  // Before Smart start's rules, so a sleeper just back has their own rules see the result.
   for (const side of SIDES) {
-    if (leaders[side] !== side) continue
-    await follow(side)
-    if (!live) continue
+    await syncOneSide(side, beds, live).catch(warnFailed(`${side} one side`))
+  }
+  if (!live) return
+  for (const side of SIDES) {
+    // The empty half of a one-side bed has no Smart start of its own.
+    if (bedOwnerOf(side, beds) !== side) continue
     // A side that keeps failing must not hold up the other one.
     await tickSide(side).catch((error) => {
       console.warn(`[fork] ${side} tick failed:`, error instanceof Error ? error.message : error)
     })
-  }
-  for (const side of SIDES) {
-    if (leaders[side] !== side) await follow(side)
   }
 }
 
@@ -156,7 +153,7 @@ export function startForkService(): void {
     globalService.__sp_forkService = { timers, settled }
     guarded('housekeeping', () => dailyHousekeeping())()
     guarded('rotation', rotationTick)()
-    if (runtime.disabled) guarded('following', () => releaseFollowing())()
+    if (runtime.disabled) guarded('one side', () => releaseOneSide())()
     guarded('noise', () => {
       stopLeftoverPlayers()
       clearStaleNoise()

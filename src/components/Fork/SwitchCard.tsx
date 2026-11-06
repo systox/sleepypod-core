@@ -29,11 +29,11 @@ export function SwitchCard({ side }: { side: Side }) {
   const follower = data[other].following?.leader === side ? data[other].following : null
   const lead = view.following
   const following = lead && (lead.why === 'away'
-    ? `Away: this side follows ${sideName(lead.leader)}'s curve and Smart start. Its own settings below apply again once it's back.`
-    : `Unused side: it follows ${sideName(lead.leader)}'s curve and Smart start. Its own settings below apply once the bed is set up for two.`)
+    ? `Away: the whole bed is ${sideName(lead.leader)}'s, with their curve, Smart start and buttons on both halves. This side's own settings below apply again once it's back.`
+    : `Unused side: the whole bed is ${sideName(lead.leader)}'s, with their curve, Smart start and buttons on both halves. This side's own settings below apply once the bed is set up for two.`)
   const followed = follower && (follower.why === 'away'
-    ? `While ${sideName(other)} is away, their side follows this curve and Smart start too.`
-    : 'The unused side follows this curve and Smart start too.')
+    ? `While ${sideName(other)} is away, the whole bed is this side's: both halves run this curve and Smart start, and either half's buttons change both.`
+    : 'The whole bed is this side\'s: both halves run this curve and Smart start, and either half\'s buttons change both.')
 
   return (
     <Card className="gap-2.5">

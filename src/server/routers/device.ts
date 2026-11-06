@@ -18,6 +18,7 @@ import { getTemperatureController, getTemperatureControlStatus } from '@/src/tem
 import { getJobManager } from '@/src/scheduler'
 import { holdMinutesSchema, temperatureControlStatusSchema } from '@/src/temperature/schema'
 import { markPersonPower } from '@/src/fork/runtime'
+import { controlSideOf } from '@/src/fork/oneSide'
 import {
   sideSchema,
   temperatureSchema,
@@ -279,6 +280,7 @@ export const deviceRouter = router({
     .input(z.object({ side: sideSchema }).strict())
     .output(temperatureControlStatusSchema)
     .mutation(async ({ input }) => {
+      input = { ...input, side: controlSideOf(input.side) }
       const pending = pendingTemps.get(input.side)
       if (pending) {
         clearTimeout(pending.timer)
@@ -333,6 +335,7 @@ export const deviceRouter = router({
     )
     .output(z.object({ success: z.boolean() }))
     .mutation(async ({ input }) => {
+      input = { ...input, side: controlSideOf(input.side) }
       if (input.duration !== 0) assertPumpStallNotBlocked(input.side)
 
       // Server-side debounce: collapse rapid dial-drag calls into one hardware command.
@@ -416,6 +419,7 @@ export const deviceRouter = router({
     )
     .output(z.object({ success: z.boolean() }))
     .mutation(async ({ input }) => {
+      input = { ...input, side: controlSideOf(input.side) }
       // Only block when raising power. Powering off is always allowed —
       // it's the safe direction, and the guard's own trip uses this path.
       if (input.powered) {

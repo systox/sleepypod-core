@@ -17,8 +17,6 @@ export interface AwayFacts {
   zoneMode: ZoneMode
   /** The bed is set up for one sleeper, so the same choice covers its empty side. */
   solo: boolean
-  /** The empty side copies Smart start too, not only the curve (the fork's followSmartStart). */
-  followsSmartStart: boolean
   smartStart: Record<Side, boolean>
 }
 
@@ -66,7 +64,7 @@ function awayZoneLine(facts: AwayFacts): string {
   if (away.length === 2) return 'Both sleepers are away, so both sides stay off whatever this is set to.'
   if (away.length === 0) {
     if (facts.zoneMode === 'off') return 'Nobody is away. When someone is, their side stays off.'
-    if (facts.zoneMode === 'follow') return 'Nobody is away. When someone is, their side runs the same temperatures as the sleeper at home.'
+    if (facts.zoneMode === 'follow') return 'Nobody is away. When someone is, the whole bed becomes the home sleeper\'s: both halves run their curve, and either half\'s buttons change both.'
     return 'Nobody is away. When someone is, their side keeps running its own curve.'
   }
   const gone = away[0]
@@ -75,10 +73,9 @@ function awayZoneLine(facts: AwayFacts): string {
   const home = facts.sleepers[homeSide].name
   if (facts.zoneMode === 'off') return `${name}'s side stays off until ${name} is back.`
   if (facts.zoneMode === 'independent') return `${name}'s side keeps running ${name}'s own curve, as if ${name} were home.`
-  const smart = facts.followsSmartStart && facts.smartStart[homeSide]
-  return smart
-    ? `${name}'s side runs ${home}'s curve, starting and ending with ${home}'s Smart start, until ${name} is back.`
-    : `${name}'s side runs ${home}'s curve at its set times until ${name} is back.`
+  return facts.smartStart[homeSide]
+    ? `The whole bed is ${home}'s until ${name} is back: both halves run ${home}'s curve, starting and ending with ${home}'s Smart start, and either half's buttons change both.`
+    : `The whole bed is ${home}'s until ${name} is back: both halves run ${home}'s curve at its set times, and either half's buttons change both.`
 }
 
 /** The value a datetime-local field shows for an ISO time, in this browser's time zone. */
@@ -114,7 +111,6 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
     sleepers: { left: sleeper('left'), right: sleeper('right') },
     zoneMode: (settings.device.unusedZoneMode ?? 'off') as ZoneMode,
     solo: (settings.device.bedMode ?? 'two') !== 'two',
-    followsSmartStart: fork?.pod.followSmartStart ?? false,
     smartStart: { left: fork?.left.settings.smartStart ?? false, right: fork?.right.settings.smartStart ?? false },
   }
   // Whoever is away first: while the page is locked to the sleeper at home, they're the one to find here.

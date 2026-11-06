@@ -37,7 +37,6 @@ const facts = (over: Partial<AwayFacts> = {}): AwayFacts => ({
   sleepers: { left: { name: 'Sam', away: true, awayReturn: null }, right: { name: 'Alex', away: false, awayReturn: null } },
   zoneMode: 'follow',
   solo: false,
-  followsSmartStart: true,
   smartStart: { left: false, right: true },
   ...over,
 })
@@ -46,13 +45,13 @@ beforeEach(() => {
   h.saveSide.mockReset()
   h.saveDevice.mockReset()
   h.settings = { sides: sides(false), device: { bedMode: 'two', unusedZoneMode: 'off' } }
-  h.overview = { pod: { followSmartStart: true }, left: { settings: { smartStart: true } }, right: { settings: { smartStart: true } } }
+  h.overview = { pod: {}, left: { settings: { smartStart: true } }, right: { settings: { smartStart: true } } }
 })
 
 describe('what the away side does', () => {
   it('names the sleepers when one is away', () => {
-    expect(zoneLine(facts())).toBe('Sam\'s side runs Alex\'s curve, starting and ending with Alex\'s Smart start, until Sam is back.')
-    expect(zoneLine(facts({ smartStart: { left: true, right: false } }))).toBe('Sam\'s side runs Alex\'s curve at its set times until Sam is back.')
+    expect(zoneLine(facts())).toBe('The whole bed is Alex\'s until Sam is back: both halves run Alex\'s curve, starting and ending with Alex\'s Smart start, and either half\'s buttons change both.')
+    expect(zoneLine(facts({ smartStart: { left: true, right: false } }))).toBe('The whole bed is Alex\'s until Sam is back: both halves run Alex\'s curve at its set times, and either half\'s buttons change both.')
     expect(zoneLine(facts({ zoneMode: 'off' }))).toBe('Sam\'s side stays off until Sam is back.')
     expect(zoneOptions(facts()).map(o => o.label)).toEqual(['Turns off', 'Matches Alex\'s side', 'Keeps its own curve'])
     expect(zoneLabel(facts())).toBe('Sam\'s side while away')
@@ -61,7 +60,7 @@ describe('what the away side does', () => {
 
   it('speaks generally when nobody is away, and says both away means off', () => {
     const home = facts({ sleepers: { left: { name: 'Sam', away: false, awayReturn: null }, right: { name: 'Alex', away: false, awayReturn: null } } })
-    expect(zoneLine(home)).toBe('Nobody is away. When someone is, their side runs the same temperatures as the sleeper at home.')
+    expect(zoneLine(home)).toBe('Nobody is away. When someone is, the whole bed becomes the home sleeper\'s: both halves run their curve, and either half\'s buttons change both.')
     expect(zoneOptions(home)[1].label).toBe('Matches the other side')
     const gone = facts({ sleepers: { left: { name: 'Sam', away: true, awayReturn: null }, right: { name: 'Alex', away: true, awayReturn: null } } })
     expect(zoneLine(gone)).toBe('Both sleepers are away, so both sides stay off whatever this is set to.')

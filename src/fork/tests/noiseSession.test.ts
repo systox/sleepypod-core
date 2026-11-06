@@ -24,12 +24,12 @@ vi.mock('node:child_process', async (importOriginal) => {
 vi.mock('@/src/temperature/instance', () => ({ getTemperatureController: () => ({ status: () => ({ blocked: null }) }) }))
 vi.mock('../presence/collector', () => ({
   presenceOf: (side: 'left' | 'right') => ({ occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] }),
+  bedPresenceOf: (side: 'left' | 'right') => h.merged[side] ?? { occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] },
   sensorsFresh: () => true,
   bedEmptiedAt: () => h.emptiedAt,
 }))
-vi.mock('../smart/following', () => ({
-  bedState: () => ({ bedMode: 'two', left: { awayMode: h.away.left }, right: { awayMode: h.away.right } }),
-  bedPresenceOf: (side: 'left' | 'right') => h.merged[side] ?? { occupied: h.occupied[side], since: h.since[side], returningSince: h.returning[side] },
+vi.mock('../oneSide', () => ({
+  bedConfiguration: () => ({ bedMode: 'two', left: { awayMode: h.away.left }, right: { awayMode: h.away.right } }),
 }))
 vi.mock('../smart/runner', () => ({
   windowsOf: (side: 'left' | 'right', now: number, hours?: { hoursLate: number }) => {
