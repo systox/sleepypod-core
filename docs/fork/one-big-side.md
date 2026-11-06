@@ -24,8 +24,8 @@ software keeps the two halves identical.
 ## 2. Why the current design is being replaced
 
 The current design treats the away half as a second side that copies the home
-side: a copy of her Smart start session, copies of her holds that outlast hers
-by 60 seconds so Smooth return steps can cross over, a "dismissed" state for a
+side: a copy of the home side's Smart start session, copies of its holds that
+outlast the originals by 60 seconds so Smooth return steps can cross over, a "dismissed" state for a
 half someone turned off, and a carry step after each redirected press. Every
 copy is a second piece of state that has to be kept in step with the first,
 and almost every bug found in the two reviews of 11-05 was a copy falling out
@@ -391,7 +391,7 @@ the collector to record an entry for them.
 
 Decision: presence merges only while one side lasts (zone mode 'follow'), as
 today. Upstream's Python merges vitals whenever one sleeper is home, whatever
-the zone mode. Extending the merge to 'off' (her rolling onto the unheated
+the zone mode. Extending the merge to 'off' (the sleeper rolling onto the unheated
 half would otherwise read as getting up) is a reasonable later step, kept out
 of this change to keep it about one side. 'independent' should never merge:
 the other half may have a guest.
@@ -508,7 +508,7 @@ which is correct. The old row stays in `fork.db`, unused.
 | Pump alert parking A (`pumpAlerts.ts` calls `device.setPower` off) | Parks A | Parks A: not redirected while A is guard-blocked (4.4) |
 | Pump guard trip on H | H off | H off, A off (rule 3) |
 | Firmware 8-hour timer | Per half | Kept in step (rule 4) |
-| Upstream bed-exit auto-off | Per half, by each half's occupancy | Off on this Pod. **If turned on it would be wrong**: with the sleeper lying on A, H's half reads empty, auto-off turns H off, and A's step turns A off, so the bed goes off with her in it. It would need the redirect and the merged presence. Known gap. |
+| Upstream bed-exit auto-off | Per half, by each half's occupancy | Off on this Pod. **If turned on it would be wrong**: with the sleeper lying on A, H's half reads empty, auto-off turns H off, and A's step turns A off, so the bed goes off with the sleeper in it. It would need the redirect and the merged presence. Known gap. |
 | Upstream auto-on | Per half | Off on this Pod. If turned on, it would power A alone and A's step would undo it. Known gap. |
 | Upstream global max-on cap | Per half, skipping halves with a run-once | Off on this Pod. If turned on, A (no session of its own) could be cut while H runs, and A's step would turn it back on. Known gap. |
 | Upstream autopilot | Per half | Not used here (0 automations). Known gap. |
