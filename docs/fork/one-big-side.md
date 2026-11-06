@@ -1,6 +1,7 @@
 # One big side: the bed while one sleeper is away
 
-Status: built 11-05 (`src/fork/oneSide.ts`, `src/fork/smart/oneSideNight.ts`).
+Status: built 2026-11-05 in f2cbe47c (`src/fork/oneSide.ts`,
+`src/fork/smart/oneSideNight.ts`).
 Replaced the "following" design in `src/fork/smart/following.ts` (installed
 as of afe71509, now deleted).
 
@@ -102,14 +103,14 @@ each half is governed exactly as today.
   `carriesHomeHold`, the "dismissed" state and its Tonight wording.
 - The `followSmartStart` pod setting and its toggle. With one side there is
   nothing for A to follow separately: Smart start drives H, and A is H.
-- `bedPresenceOf` as a separate function: presence is merged once, at the
-  source (rule 7).
 - `following.ts` (about 360 lines) is deleted. Its job splits between
   `oneSide.ts` (the core: `bedOwnerOf`, the wrapper, A's step, the redirect)
   and a new `src/fork/smart/oneSideNight.ts` (the fork's part: start and end
   steps, `FollowView` for the cards, the release when the service disables
   itself). `smartSourceOf`, `smartStartFor`, `bedState`, `followerOf`,
   `pointsFromNow`, `FollowResult` and `syncFollowing` go with it.
+  `bedPresenceOf` does not go: it moves to the presence collector, unchanged
+  (4.5).
 
 ### 3.3 What stays because the hardware is two halves
 
@@ -240,7 +241,8 @@ was not drained at shutdown.)
 **A's step**, under A's lock, every second while one side lasts:
 
 1. A is guard-blocked: do nothing. The pump guard owns A.
-2. H is off or blocked: if A is on, `powerOffLocked(A)`. Done.
+2. H is off or blocked: if A is on, by the controller's state or by the
+   firmware's report (a power-off that failed), `powerOffLocked(A)`. Done.
 3. A press wait is open on A: do nothing, so the firmware's move on A is still
    there to measure when the press settles (4.4).
 4. "A's due temperature" is `status(A).targetTemperature` (H's plan). With
@@ -303,7 +305,9 @@ lock, as every other writer does.
 ### 4.4 Controls on A act on H (rule 5)
 
 Resolve the side at the entry point, before the side lock is taken, so the
-lock held is H's:
+lock held is H's. Each entry point in the table calls `controlSideOf(side)` in
+`oneSide.ts`: `bedOwnerOf`, except for a half the pump guard is blocking
+(below).
 
 | Entry point | File (upstream) | Lines |
 |---|---|---|
@@ -403,7 +407,8 @@ the other half may have a guest.
   aside when one side starts (as today).
 - `runCommand(A)` keeps refusing, with the message "This half is part of
   {H}'s bed while its sleeper is away, so it has no curve or Smart start of
-  its own." A refused run-once start adds "Start it on {H}'s side."
+  its own." ("while the bed is set up for one" when nobody is away). A
+  refused run-once start adds "Start it on {H}'s side."
 - Surface range: `stepSurface(A)` does nothing while one side lasts. `stepSurface(H)`
   reads the surface of the half where `presenceOf` shows the sleeper (H's half
   if both or neither) and uses `bedPresenceOf(H)` for in or out. The offset
@@ -601,6 +606,10 @@ against the table in section 6, path by path. Specific risks to probe:
   store; test 11's list matches the stock source.
 
 ## 10. Rollout
+
+Status 2026-11-06: step 1 is done (f2cbe47c; the reviews are in section 11,
+and the stock files gained only the hook lines, 19 lines in 6 files). Steps 2
+to 4 are checks on a Pod and are not tracked in this repo.
 
 1. Build as one feature commit (it replaces a feature; there is no separate
    bug fix in it). One medium review; fix its findings without a second round.
