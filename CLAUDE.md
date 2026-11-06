@@ -25,13 +25,22 @@ keep upstream's improvements easy to merge.
 - When a clean design and a small diff conflict, prefer the small diff and say
   what it costs.
 - Check drift with `git diff --stat upstream/main...pod5`.
+- Leave the files under `sourceHashes` and `dependencyHashes` in
+  `modules/common/biometrics/manifest.v1.json` alone (among them
+  `modules/piezo-processor/main.py` and `pnpm-lock.yaml`): upstream's biometric
+  contract pins them by hash, and `src/biometrics/algorithms/tests/registry.test.ts`
+  fails on any change.
+- `src/fork/tests/stockWritePaths.test.ts` counts the calls in stock files that
+  can write a half's temperature or power. When a merge changes a count, read
+  the new call against `docs/fork/one-big-side.md` before updating the count.
 
 ## Commits and behaviour
 
 - Keep bug fixes in separate commits from features, so a fix can be offered
   upstream and dropped here once accepted.
 - New behaviour starts off by default, behind a setting, so it can be turned
-  off without a reinstall.
+  off without a reinstall. One exception, the owner's choice: a cover press
+  holds by default (`holdMinutes` 30 in `src/fork/settingsSchema.ts`).
 - This repo is public. Keep names, personal curves, addresses, keys and sleep
   data out of it. Per-Pod values belong on the Pod.
 - Commit with the GitHub no-reply address.
@@ -41,8 +50,11 @@ keep upstream's improvements easy to merge.
 Install with the bed empty:
 
 ```bash
-SLEEPYPOD_GITHUB_REPO=systox/sleepypod-core sp-update pod5
+SLEEPYPOD_GITHUB_REPO=systox/sleepypod-core /usr/local/bin/sp-update pod5
 ```
+
+A command run over SSH gets a PATH without `/usr/local/bin`, so plain
+`sp-update` is not found there and plain `node` is an old v16.
 
 `sp-update` deletes and rebuilds each Python module's virtual environment and
 its package cache is empty, so copy `piezo-processor/.venv` aside first. A failed
