@@ -5,7 +5,7 @@
  * which turns Smart start off and hands the bed back to the weekly schedule.
  */
 import Database from 'better-sqlite3'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 export interface ForkEvent {
@@ -113,7 +113,13 @@ export function listEvents(from: number, to: number, kinds?: string[]): ForkEven
   return kinds ? rows.filter(row => kinds.includes(row.kind)) : rows
 }
 
-/** Oldest-first prune and one copy a day beside the file. Nothing else backs it up. */
+/**
+ * Oldest-first prune and one copy a day beside the file. Nothing else backs it up.
+ * SQLite writes the copy itself: on Linux, opening and closing the live file
+ * from this process (a plain file copy) drops SQLite's lock on it, and an
+ * outside reader with an older SQLite (the Pod's Python has 3.38) then deletes
+ * the WAL this connection still writes to.
+ */
 export function dailyHousekeeping(now = Date.now()): void {
   const path = forkDbPath()
   const day = new Date(now).toISOString().slice(0, 10)
@@ -121,8 +127,10 @@ export function dailyHousekeeping(now = Date.now()): void {
   const sqlite = handle()
   sqlite.prepare('delete from events where ts < ?').run(now - EVENT_KEEP_MS)
   if (path !== ':memory:' && existsSync(path)) {
-    sqlite.pragma('wal_checkpoint(TRUNCATE)')
-    copyFileSync(path, `${path}.daily`)
+    const partial = `${path}.daily.tmp`
+    rmSync(partial, { force: true })
+    sqlite.prepare('vacuum into ?').run(partial)
+    renameSync(partial, `${path}.daily`)
   }
   state.backupDay = day
 }
