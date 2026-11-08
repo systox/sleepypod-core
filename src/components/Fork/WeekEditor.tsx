@@ -189,7 +189,7 @@ export function WeekEditor({ id }: { id: string }) {
       <span className="text-[13px] text-fg-2">
         {selected.length > 0
           ? `Tap a curve to put it on ${formatDayRange(selected)}. Tap more days to fill several at once.`
-          : 'Tap a day above, then a curve.'}
+          : 'Tap day(s) above, then a curve.'}
         <span className="hidden min-[900px]:inline"> You can also drag a curve onto a day.</span>
       </span>
       <div className="grid grid-cols-2 gap-2 min-[900px]:grid-cols-5 min-[900px]:gap-3">

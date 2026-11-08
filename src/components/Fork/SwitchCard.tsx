@@ -53,9 +53,7 @@ export function SwitchCard({ side }: { side: Side }) {
         label="Conditioning"
         sub={!settings.smartStart
           ? needsSmart
-          : settings.warmUp
-            ? `At the curve's start time the side comes on, even with nobody in bed, and brings the bed to the curve's opening temperature, warm or cool. It holds there for up to ${hours(settings.warmUpWaitHours)} for someone to get in.`
-            : 'The side stays off until someone gets in bed.'}
+          : `Temperature regulation begins at the curve's scheduled start, even if the bed is empty. The curve progresses only once you lie down. It waits up to ${hours(settings.warmUpWaitHours)} for someone.`}
       >
         <Toggle on={settings.warmUp} label="Conditioning" disabled={!settings.smartStart} onChange={warmUp => set({ warmUp })} />
       </SettingRow>
@@ -65,9 +63,7 @@ export function SwitchCard({ side }: { side: Side }) {
         label="Reading mode"
         sub={!settings.smartStart
           ? needsSmart
-          : settings.readingMode
-            ? `In bed up to ${hours(settings.hoursEarly)} before the curve's start: about ${settings.minutesToCall} minutes after you get in, the side comes on and holds the curve's first temperature until the start time. Then the curve begins.`
-            : `In bed up to ${hours(settings.hoursEarly)} before the curve's start: the whole curve starts about ${settings.minutesToCall} minutes after you get in.`}
+          : `Getting into bed early triggers and extends the scheduled curve's first temperature after about ${settings.minutesToCall} minutes.`}
       >
         <Toggle on={settings.readingMode} label="Reading mode" disabled={!settings.smartStart} onChange={readingMode => set({ readingMode })} />
       </SettingRow>
