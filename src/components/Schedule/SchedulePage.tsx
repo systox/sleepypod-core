@@ -34,8 +34,8 @@ import { AlarmSection } from './AlarmSection'
 import { curveSlug, formatDayRange, parseCurveSlug, sameDays } from './scheduleFormat'
 import { AwayCard } from '@/src/components/Fork/AwayCard'
 import { BothRotation } from '@/src/components/Fork/BothRotation'
-import { RotationCard } from '@/src/components/Fork/RotationCard'
 import { SwitchCard } from '@/src/components/Fork/SwitchCard'
+import { useCurveWeeks, WeeksCard } from '@/src/components/Fork/WeeksCard'
 import { WeeksSection } from '@/src/components/Fork/WeeksSection'
 
 interface EditingCurve {
@@ -177,9 +177,12 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
   const others = visibleGroups.filter(g => g !== featured && !ownerOf(side, g))
   const viewSides: Side[] = both ? ['left', 'right'] : [side]
   // Library curves for this view: ones with days on a shown side, or no days at all.
+  // Fork: tonight's library curve shows its chart in its own place, first in the list.
+  const { mergeTonight, rotationRuns, weeksOf } = useCurveWeeks(side)
+  const tonightOwner = mergeTonight && !both ? featuredOwner : undefined
   const libraryCurves = saved.templates
     .filter(t => !hasDays(t.days) || viewSides.some(s => t.days[s].length > 0))
-    .sort((a, b) => Number(b.active) - Number(a.active))
+    .sort((a, b) => Number(b.id === tonightOwner?.id) - Number(a.id === tonightOwner?.id) || Number(b.active) - Number(a.active))
 
   const curveHref = useCallback((slug: string, linkSide: SideSelection | null, from?: 'both') => {
     const params = new URLSearchParams()
@@ -410,7 +413,7 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
             </Card>
           )}
 
-          {both ? <BothRotation names={names} /> : <RotationCard side={side} sideName={names[side]} />}
+          {both ? <BothRotation names={names} /> : <WeeksCard side={side} />}
 
           {both && hasAnyCurves && (
             <>
@@ -419,7 +422,7 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
             </>
           )}
 
-          {!both && featured && (
+          {!both && featured && !tonightOwner && (
             <CurveCard
               featured
               group={featured}
@@ -448,24 +451,41 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
             </div>
           )}
 
-          <WeeksSection />
+          {both && <WeeksSection />}
 
           {(hasAnyCurves || libraryCurves.length > 0) && (
             <>
               <SectionLabel className="mt-1">Curves</SectionLabel>
               {libraryError && <InlineError>{libraryError}</InlineError>}
               <div className="grid gap-3.5 min-[900px]:grid-cols-3 min-[900px]:gap-3">
-                {libraryCurves.map(t => (
-                  <SavedCurveCard
-                    key={t.id}
-                    template={t}
-                    daysLabel={curveDaysLabel(t, viewSides, names)}
-                    busy={saved.isChanging}
-                    onOpen={() => openCurve(t)}
-                    onToggle={next => toggleCurve(t, next)}
-                    onDelete={() => setPendingSavedDelete(t)}
-                  />
-                ))}
+                {libraryCurves.map(t => (featured && tonightOwner?.id === t.id
+                  ? (
+                      <div key={t.id} className="min-[900px]:col-span-3">
+                        <CurveCard
+                          featured
+                          group={featured}
+                          onEdit={() => openCurve(t)}
+                          onDelete={() => setPendingSavedDelete(t)}
+                          isActive={featured.key === activeCurveKey}
+                          nextEvent={featured.key === activeCurveKey ? nextEvent : null}
+                          bed={bed}
+                          notes={notesFor(featured.days)}
+                          name={t.name}
+                        />
+                      </div>
+                    )
+                  : (
+                      <SavedCurveCard
+                        key={t.id}
+                        template={t}
+                        daysLabel={!both && rotationRuns && weeksOf(t.id).length > 0 ? `In ${weeksOf(t.id).join(', ')}` : curveDaysLabel(t, viewSides, names)}
+                        busy={saved.isChanging}
+                        onOpen={() => openCurve(t)}
+                        // Fork: while a rotation runs, its weeks decide which curves are on.
+                        onToggle={!both && rotationRuns ? undefined : next => toggleCurve(t, next)}
+                        onDelete={() => setPendingSavedDelete(t)}
+                      />
+                    )))}
                 <Button
                   variant="dashed"
                   icon={Plus}

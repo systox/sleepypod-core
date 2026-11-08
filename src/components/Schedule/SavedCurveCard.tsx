@@ -53,7 +53,8 @@ export function SavedCurveCard({ template, daysLabel, onOpen, onToggle, onDelete
   template: SavedCurve
   daysLabel: string
   onOpen: () => void
-  onToggle: (next: boolean) => void
+  /** Fork: left out while a rotation decides which curves are on. */
+  onToggle?: (next: boolean) => void
   onDelete: () => void
   busy?: boolean
 }) {
@@ -76,14 +77,16 @@ export function SavedCurveCard({ template, daysLabel, onOpen, onToggle, onDelete
         <div className="ml-auto flex items-center gap-2">
           <GhostIcon icon={Pencil} size={15} label={`Edit ${template.name}`} onClick={stop(onOpen)} />
           <GhostIcon icon={Trash2} size={15} label={`Delete ${template.name}`} className="text-fg-3" onClick={stop(onDelete)} />
-          <span onClick={e => e.stopPropagation()} className="flex">
-            <Toggle
-              on={template.active}
-              onChange={onToggle}
-              disabled={busy}
-              label={`${template.active ? 'Turn off' : 'Turn on'} ${template.name}`}
-            />
-          </span>
+          {onToggle && (
+            <span onClick={e => e.stopPropagation()} className="flex">
+              <Toggle
+                on={template.active}
+                onChange={onToggle}
+                disabled={busy}
+                label={`${template.active ? 'Turn off' : 'Turn on'} ${template.name}`}
+              />
+            </span>
+          )}
         </div>
       </div>
       <span className={template.active ? 'font-mono text-xs text-fg' : 'font-mono text-xs text-fg-3'}>

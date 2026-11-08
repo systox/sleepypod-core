@@ -14,9 +14,8 @@ import { surfaceView } from '@/src/fork/surface'
 import { serviceHealth } from '@/src/fork/service'
 import { getPodSettings, getSideSettings, podSettingsSchema, setPodSettings, setSideSettings, sideSettingsSchema } from '@/src/fork/settings'
 import { noteSwitchedOn, runCommand, runStateOf, windowsOf } from '@/src/fork/smart/runner'
-import { deviceTimezone } from '@/src/fork/clock'
 import { listEvents, logEvent, readKey, writeKey } from '@/src/fork/store'
-import { deletePreset, getRotation, listPresets, rotationSchema, rotationView, savePreset, saveRotation, syncRotation, weekNumber, weekPresetSchema } from '@/src/fork/weeks'
+import { deletePreset, getRotation, listPresets, rotationSchema, rotationView, savePreset, saveRotation, syncRotation, weekPresetSchema } from '@/src/fork/weeks'
 import { db } from '@/src/db'
 import { deviceSettings } from '@/src/db/schema'
 import type { Side } from '@/src/hardware/types'
@@ -232,23 +231,6 @@ export const forkRouter = router({
       }
       catch (error) {
         failed('save the rotation', error)
-      }
-    }),
-
-  /** Use another preset for this week only, or null to undo. */
-  swapWeek: publicProcedure
-    .input(z.object({ side: sideSchema, presetId: z.string().min(1).max(64).nullable() }).strict())
-    .mutation(async ({ input }) => {
-      const rotation = getRotation(input.side)
-      if (!rotation) failed('swap the week', new Error('This side has no rotation'))
-      try {
-        const week = weekNumber(rotation, Date.now(), deviceTimezone())
-        const saved = saveRotation(input.side, { ...rotation, swap: input.presetId ? { week, presetId: input.presetId } : null })
-        await syncRotation(input.side, Date.now(), true)
-        return saved
-      }
-      catch (error) {
-        failed('swap the week', error)
       }
     }),
 })

@@ -41,5 +41,4 @@ export const fork: DemoHandlers<'fork'> = {
   saveWeek: input => ({ ...input, id: input.id ?? 'demo' }),
   deleteWeek: () => ({ ok: true }),
   saveRotation: input => input.rotation,
-  swapWeek: () => undefined as never,
 }

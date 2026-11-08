@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anchorAfter, barsFor, dayBars, dayDate, EMPTY_WEEK, makeThisWeek, mondayOf, moveStep, repeatText, sparkline, stepOf, weekDates, weekSummary } from '../weekLogic'
+import { anchorAfter, barsFor, dayBars, dayDate, EMPTY_WEEK, makeThisWeek, mondayOf, moveSpot, repeatText, sparkline, stepOf, stepsFrom, weekDates, weekSummary } from '../weekLogic'
 import { describeSide, groupNights, nextStep, type SideView } from '../tonightLogic'
 import { INITIAL_RUN } from '@/src/fork/smart/engine'
 import { DEFAULT_SIDE_SETTINGS } from '@/src/fork/settings'
@@ -74,11 +74,35 @@ describe('rotation order', () => {
     expect(repeatText(4)).toBe('Repeats every 4 weeks')
   })
 
-  it('never moves this week', () => {
-    expect(moveStep(['a', 'b', 'c'], 2, 1)).toEqual(['a', 'c', 'b'])
-    expect(moveStep(['a', 'b', 'c'], 1, 0)).toEqual(['a', 'b', 'c'])
-    expect(moveStep(['a', 'b', 'c'], 0, 1)).toEqual(['a', 'b', 'c'])
-    expect(moveStep(['a', 'b', 'c'], 1, 3)).toEqual(['a', 'b', 'c'])
+  it('moves a week into a slot, and the later weeks move on one', () => {
+    const lists = { active: ['a', 'b', 'c'], inactive: ['d'] }
+    const active = (index: number) => ({ list: 'active' as const, index })
+    const inactive = (index: number) => ({ list: 'inactive' as const, index })
+    expect(moveSpot(lists, active(2), active(0))).toEqual({ active: ['c', 'a', 'b'], inactive: ['d'] })
+    expect(moveSpot(lists, active(0), active(2))).toEqual({ active: ['b', 'c', 'a'], inactive: ['d'] })
+    expect(moveSpot(lists, inactive(0), active(1))).toEqual({ active: ['a', 'd', 'b', 'c'], inactive: [] })
+    expect(moveSpot(lists, inactive(0), active(3))).toEqual({ active: ['a', 'b', 'c', 'd'], inactive: [] })
+    expect(moveSpot(lists, active(1), inactive(1))).toEqual({ active: ['a', 'c'], inactive: ['d', 'b'] })
+  })
+
+  it('changes nothing for a drop in place, between inactive weeks, or of the last rotation week', () => {
+    const lists = { active: ['a'], inactive: ['b', 'c'] }
+    expect(moveSpot(lists, { list: 'active', index: 0 }, { list: 'active', index: 0 })).toBeNull()
+    expect(moveSpot(lists, { list: 'inactive', index: 0 }, { list: 'inactive', index: 1 })).toBeNull()
+    expect(moveSpot(lists, { list: 'active', index: 0 }, { list: 'inactive', index: 2 })).toBeNull()
+  })
+
+  it('keeps a week used twice out of Inactive until its last copy leaves', () => {
+    expect(moveSpot({ active: ['a', 'b', 'a'], inactive: [] }, { list: 'active', index: 2 }, { list: 'inactive', index: 0 }))
+      .toEqual({ active: ['a', 'b'], inactive: [] })
+  })
+
+  it('stores a new order so this week keeps its place in the rotation', () => {
+    // Week 4 of a 3-step rotation is step 1, so the shown order starts there.
+    const steps = stepsFrom(['c', 'a', 'b'], 4)
+    expect(steps[stepOf(4, 3)]).toBe('c')
+    expect(makeThisWeek(steps, stepOf(4, 3))).toEqual(['c', 'a', 'b'])
+    expect(makeThisWeek(stepsFrom(['a', 'b', 'c', 'd'], 4), stepOf(4, 4))).toEqual(['a', 'b', 'c', 'd'])
   })
 
   it('keeps the order when another step becomes this week', () => {

@@ -45,8 +45,6 @@ export const rotationSchema = z.object({
   /** Local time the week changes on Mondays. */
   changeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   paused: z.boolean(),
-  /** A preset used for one week only, by its week number. */
-  swap: z.object({ week: z.number().int(), presetId: z.string().min(1).max(64) }).nullable(),
 })
 
 export type WeekPreset = z.infer<typeof weekPresetSchema>
@@ -101,7 +99,7 @@ export function stepIndex(rotation: Rotation, week: number): number {
 }
 
 export function presetForWeek(rotation: Rotation, week: number): string {
-  return rotation.swap?.week === week ? rotation.swap.presetId : rotation.steps[stepIndex(rotation, week)]
+  return rotation.steps[stepIndex(rotation, week)]
 }
 
 /** Put a preset's curves on one side's days. Other sides and alarms stay untouched. */

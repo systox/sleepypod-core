@@ -6,7 +6,7 @@
  */
 import { vi } from 'vitest'
 
-vi.mock('@/src/components/Fork/RotationCard', () => ({ RotationCard: () => null }))
+vi.mock('@/src/components/Fork/WeeksCard', () => ({ WeeksCard: () => null, useCurveWeeks: () => ({ mergeTonight: false, rotationRuns: false, weeksOf: () => [] }) }))
 vi.mock('@/src/components/Fork/BothRotation', () => ({ BothRotation: () => null }))
 vi.mock('@/src/components/Fork/SwitchCard', () => ({ SwitchCard: () => null }))
 vi.mock('@/src/components/Fork/AwayCard', () => ({ AwayCard: () => null }))

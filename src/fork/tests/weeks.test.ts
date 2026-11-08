@@ -14,9 +14,9 @@ vi.mock('@/src/scheduler', () => ({ getJobManager: async () => ({
 import { db, sqlite } from '@/src/db'
 import { curveTemplates, deviceSettings, powerSchedules, temperatureSchedules } from '@/src/db/schema'
 import { closeStore, readKey } from '../store'
-import { applyPreset, deletePreset, listPresets, presetForWeek, savePreset, saveRotation, stepIndex, syncRotation, weekNumber, type Rotation, type WeekPreset } from '../weeks'
+import { applyPreset, deletePreset, listPresets, savePreset, saveRotation, stepIndex, syncRotation, weekNumber, type Rotation, type WeekPreset } from '../weeks'
 
-const rotation: Rotation = { steps: ['off', 'day', 'night'], anchorDate: '2026-11-02', changeTime: '16:00', paused: false, swap: null }
+const rotation: Rotation = { steps: ['off', 'day', 'night'], anchorDate: '2026-11-02', changeTime: '16:00', paused: false }
 const ny = (d: number, h: number, m = 0) => Date.UTC(2026, 10, d, h + 5, m)
 
 function curve(name: string, bedtime: string, temperature: number) {
@@ -54,13 +54,6 @@ describe('which week it is', () => {
   it('walks the order and repeats', () => {
     expect([0, 1, 2, 3, 4].map(week => stepIndex(rotation, week))).toEqual([0, 1, 2, 0, 1])
     expect(stepIndex(rotation, -1)).toBe(2)
-  })
-
-  it('uses a swap for its one week, then the order carries on', () => {
-    const swapped = { ...rotation, swap: { week: 1, presetId: 'night' } }
-    expect(presetForWeek(swapped, 1)).toBe('night')
-    expect(presetForWeek(swapped, 2)).toBe('night')
-    expect(presetForWeek(swapped, 3)).toBe('off')
   })
 
   it('keeps Monday at 16:00 local across a clock change', () => {

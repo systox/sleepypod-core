@@ -96,13 +96,43 @@ export function repeatText(steps: number): string {
   return steps === 1 ? 'Repeats every week' : `Repeats every ${steps} weeks`
 }
 
-/** A step moved within the order. This week stays first, so it never moves. */
-export function moveStep(steps: string[], from: number, to: number): string[] {
-  if (from === 0 || to === 0 || to >= steps.length) return steps
-  const next = [...steps]
-  const [moved] = next.splice(from, 1)
-  next.splice(to, 0, moved)
-  return next
+/** The weeks in the rotation from this week on, and the weeks out of it. */
+export interface WeekLists { active: string[], inactive: string[] }
+/** A place a week sits: its list and its position there. */
+export interface Spot { list: 'active' | 'inactive', index: number }
+
+/**
+ * A week dragged from one place to another, or null when nothing changes.
+ * Dropped on a rotation slot, it takes that slot and the later weeks move on
+ * one. The rotation keeps at least one week, and the inactive weeks have no
+ * order to keep.
+ */
+export function moveSpot(lists: WeekLists, from: Spot, to: Spot): WeekLists | null {
+  const id = lists[from.list][from.index]
+  if (id === undefined || (from.list === 'inactive' && to.list === 'inactive')) return null
+  if (from.list === 'active' && to.list === 'inactive') {
+    if (lists.active.length === 1) return null
+    const active = lists.active.filter((_, i) => i !== from.index)
+    // A week that's still in the rotation in another slot isn't inactive.
+    return { active, inactive: active.includes(id) || lists.inactive.includes(id) ? lists.inactive : [...lists.inactive, id] }
+  }
+  const active = [...lists.active]
+  if (from.list === 'active') {
+    if (from.index === to.index) return null
+    active.splice(from.index, 1)
+  }
+  active.splice(Math.min(to.index, active.length), 0, id)
+  return { active, inactive: lists.inactive.filter(other => other !== id) }
+}
+
+/**
+ * The stored order for weeks shown from this week on, keeping the rotation's
+ * anchor: this week's place stays where it was, so a reorder that leaves this
+ * week alone doesn't put its curves on the bed again.
+ */
+export function stepsFrom(shown: string[], week: number): string[] {
+  const at = stepOf(week, shown.length)
+  return shown.map((_, i) => shown[(i - at + shown.length) % shown.length])
 }
 
 /** The order starting from another step, so that step becomes this week. */
