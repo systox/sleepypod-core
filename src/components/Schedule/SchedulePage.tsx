@@ -19,6 +19,7 @@ import { formatSetpointF } from '@/src/lib/tempUtils'
 import { groupDaysBySharedCurve } from '@/src/lib/scheduleGrouping'
 import type { ScheduleGroup } from '@/src/lib/scheduleGrouping'
 import { getCurrentDay, type DayOfWeek } from '@/src/lib/scheduleTime'
+import { scheduleSourceSide } from '@/src/lib/singleSleeper'
 import { BothNightView, PersonCurveList } from './BothNightView'
 import { bedTrace, lastNightLabel, lastNightMidnight, lastNightRange } from './bedTrace'
 import { nextSetPoint, type TempRow } from './bothNight'
@@ -159,10 +160,11 @@ export function SchedulePage({ curve, curveSide, fromBoth = false }: SchedulePag
   // The "active" curve = the one whose days include today; gets the
   // next-event annotation since that's what's actually running.
   const activeCurveKey = useMemo(() => {
-    if (!isPowerEnabled) return null
+    // Fork: a side whose half runs another side's curve, or none (its sleeper is away), has no curve running.
+    if (!isPowerEnabled || (settings && scheduleSourceSide(side, { ...settings.sides, ...settings.device }) !== side)) return null
     const today = getCurrentDay()
     return visibleGroups.find(g => g.days.includes(today) && g.setPoints.length > 0)?.key ?? null
-  }, [visibleGroups, isPowerEnabled])
+  }, [visibleGroups, isPowerEnabled, settings, side])
 
   // Large chart card: today's curve, else the first curve with set points.
   const featured = visibleGroups.find(g => g.key === activeCurveKey)

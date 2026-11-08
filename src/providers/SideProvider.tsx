@@ -52,7 +52,9 @@ export const SideProvider = ({ children }: { children: React.ReactNode }) => {
   const [hydrated, setHydrated] = useState(false)
   const { data: settings } = trpc.settings.getAll.useQuery({}, { staleTime: 30_000 })
   const singleSleeperSide = singleSleeperSideFor({ ...settings?.sides, ...settings?.device })
-  const singleScheduleSide = singleScheduleSideFor({ ...settings?.sides, ...settings?.device })
+  // Fork: only a bed set up for one locks the Schedule page to a side. A sleeper
+  // switching Away keeps the page on whoever was picked, not the sleeper at home.
+  const singleScheduleSide = singleScheduleSideFor({ ...settings?.device })
 
   // Hydrate from localStorage (primary) or cookie (fallback) on mount
   useEffect(() => {

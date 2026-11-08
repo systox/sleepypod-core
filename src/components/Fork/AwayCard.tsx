@@ -1,5 +1,6 @@
 'use client'
 
+import { useLayoutEffect, useRef } from 'react'
 import { Card, CardHeader, InlineError, SelectValue, SettingRow, Toggle } from '@/src/components/ds'
 import type { Side } from '@/src/hardware/types'
 import { formatClock, type TimeFormat } from '@/src/lib/timeFormat'
@@ -87,9 +88,8 @@ function fieldValue(iso: string | null): string {
 
 /**
  * Away mode for the sleeper picked on the Schedule page, with what their side
- * does while they're gone. The page locks to the sleeper at home while the
- * other is away, so an away sleeper is always listed here too, or there would
- * be no way back from this page.
+ * does while they're gone. An away sleeper is listed here from either
+ * sleeper's page, so the way back is never on the other tab.
  */
 export function AwayCard({ side, both }: { side: Side, both: boolean }) {
   const timeFormat = useTimeFormat()
@@ -97,7 +97,24 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
   const { data: fork } = useForkOverview()
   const utils = trpc.useUtils()
   const refresh = useForkRefresh()
-  const done = { onSuccess: () => Promise.all([utils.settings.getAll.invalidate(), refresh()]) }
+  // A change here reshapes the page above (curve cards, the side's notes), so the
+  // card is held where it sat on screen until the page has caught up.
+  const card = useRef<HTMLDivElement>(null)
+  const anchor = useRef<number | null>(null)
+  const holdPlace = () => {
+    anchor.current = card.current?.getBoundingClientRect().top ?? null
+  }
+  useLayoutEffect(() => {
+    if (anchor.current === null || !card.current) return
+    const moved = card.current.getBoundingClientRect().top - anchor.current
+    if (Math.abs(moved) >= 1) scrollerOf(card.current).scrollBy(0, moved)
+  })
+  const done = {
+    onSuccess: () => Promise.all([utils.settings.getAll.invalidate(), refresh()]),
+    onSettled: () => requestAnimationFrame(() => {
+      anchor.current = null
+    }),
+  }
   const saveSide = trpc.settings.updateSide.useMutation(done)
   const saveDevice = trpc.settings.updateDevice.useMutation(done)
   if (!settings) return null
@@ -113,7 +130,7 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
     solo: (settings.device.bedMode ?? 'two') !== 'two',
     smartStart: { left: fork?.left.settings.smartStart ?? false, right: fork?.right.settings.smartStart ?? false },
   }
-  // Whoever is away first: while the page is locked to the sleeper at home, they're the one to find here.
+  // Whoever is away first: they're the one most likely being looked for.
   const shown: Side[] = (both ? ['left', 'right'] as Side[] : facts.sleepers[other(side)].away ? [side, other(side)] : [side])
     .sort((a, b) => Number(facts.sleepers[b].away) - Number(facts.sleepers[a].away))
   const zone = zoneLabel(facts)
@@ -121,56 +138,75 @@ export function AwayCard({ side, both }: { side: Side, both: boolean }) {
   const error = saveSide.error ?? saveDevice.error
 
   return (
-    <Card className="gap-2.5">
-      <CardHeader title="Away" subtitle="For nights a sleeper isn't here. Their curves and settings stay as they are." />
-      {shown.map((s) => {
-        const { name, away, awayReturn } = facts.sleepers[s]
-        return (
-          <div key={s} className="flex flex-col gap-2">
-            <SettingRow divider={false} label={`${name} is away`} sub={awayLine(s, facts, timeFormat)}>
-              <Toggle
-                on={away}
-                label={`${name} is away`}
-                disabled={busy}
-                // Switching back clears the return time, or its job would later switch the side on again.
-                onChange={next => saveSide.mutate(next ? { side: s, awayMode: true } : { side: s, awayMode: false, awayReturn: null })}
-              />
-            </SettingRow>
-            {away && (
-              <SettingRow divider={false} label="Back" className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center">
-                <input
-                  key={awayReturn ?? 'none'}
-                  aria-label={`When ${name} is back`}
-                  type="datetime-local"
-                  className="rounded-ctl border border-line-2 bg-field px-2 py-1 text-sm"
-                  defaultValue={fieldValue(awayReturn)}
+    <div ref={card}>
+      <Card className="gap-2.5">
+        <CardHeader title="Away" subtitle="For nights a sleeper isn't here. Their curves and settings stay as they are." />
+        {shown.map((s) => {
+          const { name, away, awayReturn } = facts.sleepers[s]
+          return (
+            <div key={s} className="flex flex-col gap-2">
+              <SettingRow divider={false} label={`${name} is away`} sub={awayLine(s, facts, timeFormat)}>
+                <Toggle
+                  on={away}
+                  label={`${name} is away`}
                   disabled={busy}
-                  onBlur={(event) => {
-                    const value = event.target.value
-                    const next = value ? new Date(value).toISOString() : null
-                    if (next !== awayReturn) saveSide.mutate({ side: s, awayReturn: next })
+                  // Switching back clears the return time, or its job would later switch the side on again.
+                  onChange={(next) => {
+                    holdPlace()
+                    saveSide.mutate(next ? { side: s, awayMode: true } : { side: s, awayMode: false, awayReturn: null })
                   }}
                 />
               </SettingRow>
-            )}
-          </div>
-        )
-      })}
-      <SettingRow
-        divider={false}
-        label={zone}
-        sub={zoneLine(facts)}
-        className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center"
-      >
-        <SelectValue
+              {away && (
+                <SettingRow divider={false} label="Back" className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center">
+                  <input
+                    key={awayReturn ?? 'none'}
+                    aria-label={`When ${name} is back`}
+                    type="datetime-local"
+                    className="rounded-ctl border border-line-2 bg-field px-2 py-1 text-sm"
+                    defaultValue={fieldValue(awayReturn)}
+                    disabled={busy}
+                    onBlur={(event) => {
+                      const value = event.target.value
+                      const next = value ? new Date(value).toISOString() : null
+                      if (next === awayReturn) return
+                      holdPlace()
+                      saveSide.mutate({ side: s, awayReturn: next })
+                    }}
+                  />
+                </SettingRow>
+              )}
+            </div>
+          )
+        })}
+        <SettingRow
+          divider={false}
           label={zone}
-          value={facts.zoneMode}
-          options={zoneOptions(facts)}
-          onChange={unusedZoneMode => saveDevice.mutate({ unusedZoneMode })}
-          disabled={busy}
-        />
-      </SettingRow>
-      {error && <InlineError>{error.message}</InlineError>}
-    </Card>
+          sub={zoneLine(facts)}
+          className="flex-col items-stretch min-[600px]:flex-row min-[600px]:items-center"
+        >
+          <SelectValue
+            label={zone}
+            value={facts.zoneMode}
+            options={zoneOptions(facts)}
+            onChange={(unusedZoneMode) => {
+              holdPlace()
+              saveDevice.mutate({ unusedZoneMode })
+            }}
+            disabled={busy}
+          />
+        </SettingRow>
+        {error && <InlineError>{error.message}</InlineError>}
+      </Card>
+    </div>
   )
+}
+
+/** The nearest box that scrolls this element, or the page itself. */
+function scrollerOf(el: HTMLElement): Element {
+  for (let box = el.parentElement; box; box = box.parentElement) {
+    const { overflowY } = getComputedStyle(box)
+    if ((overflowY === 'auto' || overflowY === 'scroll') && box.scrollHeight > box.clientHeight) return box
+  }
+  return document.scrollingElement ?? document.documentElement
 }
