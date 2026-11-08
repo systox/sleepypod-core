@@ -321,6 +321,14 @@ html {
   text-size-adjust: 100%;
 }
 
+/* iOS zooms the page into any text field under 16px when it is focused, and the
+   zoom stays after leaving it. The app's web view does it despite maximum-scale. */
+@media (pointer: coarse) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
 /* Touch target utility — apply where needed */
 .touch-target {
   min-height: 44px;
