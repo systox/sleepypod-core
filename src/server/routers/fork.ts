@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { publicProcedure, router } from '@/src/server/trpc'
 import { sideSchema } from '@/src/server/validation-schemas'
-import { markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
+import { bedPresenceOf, markBedEmpty, presenceOf } from '@/src/fork/presence/collector'
 import { coverLink } from '@/src/fork/coverLink'
 import { fadeOf } from '@/src/fork/holds'
 import { noiseStatus, setNoise, syncNoise } from '@/src/fork/noise'
@@ -34,6 +34,8 @@ function sideView(side: Side, now: number) {
     settings: getSideSettings(side),
     run: runStateOf(side),
     presence: presenceOf(side),
+    /** In bed anywhere on this sleeper's bed, as Smart start counts it: on one big side, either half. */
+    bedPresence: bedPresenceOf(side),
     fade: fadeOf(side),
     tonight: window
       ? { bedtime: window.curve.bedtime, windowStart: window.windowStart, windowEnd: window.windowEnd, points: window.curve.points }
