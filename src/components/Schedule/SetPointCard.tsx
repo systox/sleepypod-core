@@ -30,8 +30,8 @@ interface SetPointCardProps {
   disabled?: boolean
   /** Marks the point that drives the Pod's auto power-on / power-off. */
   autoLabel?: 'on' | 'off' | null
-  /** Fork: the point's place in the night, shown as an icon and name above its time. */
-  phase?: PhaseName
+  /** Fork: the point's place in the sleep, shown as an icon and name above its time. */
+  phase: PhaseName
 }
 
 /**

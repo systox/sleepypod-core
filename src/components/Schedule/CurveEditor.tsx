@@ -9,7 +9,7 @@ import { AICurveWizard } from './AICurveWizard'
 import { CurveChart } from './CurveChart'
 import { SetPointCard, type EditorSetPoint } from './SetPointCard'
 import { SetPointEditor } from './SetPointEditor'
-import { phaseName } from '@/src/components/Fork/phaseNames'
+import { phaseNames } from '@/src/components/Fork/phaseNames'
 import { TimeInput } from './TimeInput'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DAY_PICKER_LABELS, daysToIndexes, formatDayRange, indexesToDays } from './scheduleFormat'
@@ -165,6 +165,7 @@ export function CurveEditor({
     }).filter((p): p is EditorSetPoint => p !== undefined)
   }, [points, bedtime, wakeTime])
 
+  const phases = phaseNames(orderedPoints.map(p => p.time))
   const autoOnId = orderedPoints[0]?.id ?? null
   const autoOffId = endAction === 'turn_off' && orderedPoints.length > 1 ? orderedPoints[orderedPoints.length - 1].id : null
 
@@ -507,11 +508,11 @@ export function CurveEditor({
 
           <Card className={cn('order-4 min-[900px]:order-none', innerCard)}>
             <SectionLabel className="min-[900px]:hidden">Set points</SectionLabel>
-            {orderedPoints.map((point, index) => (
+            {orderedPoints.map((point, i) => (
               <SetPointCard
                 key={point.id}
                 point={point}
-                phase={phaseName(index, orderedPoints.length)}
+                phase={phases[i]}
                 onSetTemp={handleSetTemp}
                 onDelete={handleDeletePoint}
                 onTapTime={(p) => {

@@ -91,7 +91,7 @@ function NoiseVolume({ volume }: { volume: number }) {
   const shown = draft ?? volume
   return (
     <span className="flex items-center gap-3">
-      <Slider className="w-36 flex-none" label="White noise volume" value={shown} step={5} onChange={setDraft} onCommit={commit} />
+      <Slider className="w-36 flex-none" label="White noise volume" value={shown} step={1} onChange={setDraft} onCommit={commit} />
       <span className="w-7 text-right font-mono text-xs tabular-nums">{shown}</span>
       {save.error && <span role="alert" className="text-xs text-danger" title={save.error.message}>Not saved</span>}
     </span>
