@@ -92,7 +92,7 @@ export function SavedCurveCard({ template, daysLabel, onOpen, onToggle, onDelete
       <span className={template.active ? 'font-mono text-xs text-fg' : 'font-mono text-xs text-fg-3'}>
         {template.active ? daysLabel : `Off · ${daysLabel}`}
       </span>
-      <MiniCurve setPoints={setPoints} className="hidden min-[900px]:block" />
+      <MiniCurve setPoints={setPoints} />
       {template.notes && <p className="line-clamp-2 text-xs text-fg-2">{template.notes}</p>}
       <span className="font-mono text-xs text-fg-2">{meta}</span>
     </Card>

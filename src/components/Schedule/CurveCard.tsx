@@ -235,7 +235,7 @@ export function CurveCard({ group, onEdit, onDelete, isActive = false, nextEvent
         ? (
             <div className="flex items-center text-xs text-fg-3 min-[900px]:h-8">No set points active</div>
           )
-        : hasSetPoints && <MiniCurve setPoints={group.setPoints} className="hidden min-[900px]:block" />}
+        : hasSetPoints && <MiniCurve setPoints={group.setPoints} />}
       {notes && <p className="line-clamp-2 text-xs text-fg-2">{notes}</p>}
       <span className="font-mono text-xs text-fg-2">
         {paused

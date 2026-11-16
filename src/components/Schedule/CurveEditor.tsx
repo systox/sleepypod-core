@@ -9,6 +9,7 @@ import { AICurveWizard } from './AICurveWizard'
 import { CurveChart } from './CurveChart'
 import { SetPointCard, type EditorSetPoint } from './SetPointCard'
 import { SetPointEditor } from './SetPointEditor'
+import { phaseName } from '@/src/components/Fork/phaseNames'
 import { TimeInput } from './TimeInput'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DAY_PICKER_LABELS, daysToIndexes, formatDayRange, indexesToDays } from './scheduleFormat'
@@ -506,10 +507,11 @@ export function CurveEditor({
 
           <Card className={cn('order-4 min-[900px]:order-none', innerCard)}>
             <SectionLabel className="min-[900px]:hidden">Set points</SectionLabel>
-            {orderedPoints.map(point => (
+            {orderedPoints.map((point, index) => (
               <SetPointCard
                 key={point.id}
                 point={point}
+                phase={phaseName(index, orderedPoints.length)}
                 onSetTemp={handleSetTemp}
                 onDelete={handleDeletePoint}
                 onTapTime={(p) => {
