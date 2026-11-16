@@ -12,7 +12,7 @@ vi.mock('@/src/components/Fork/SwitchCard', () => ({ SwitchCard: () => null }))
 vi.mock('@/src/components/Fork/AwayCard', () => ({ AwayCard: () => null }))
 vi.mock('@/src/components/Fork/WeeksSection', () => ({ WeeksSection: () => null }))
 vi.mock('@/src/components/Fork/useRunCurve', () => ({ useRunCurve: () => null }))
-vi.mock('@/src/components/Fork/NoiseCard', () => ({ NoiseQuickToggle: () => null, NoiseSection: () => null }))
+vi.mock('@/src/components/Fork/NoiseCard', () => ({ NoiseSection: () => null }))
 vi.mock('@/src/components/Fork/usePhoneTabHidden', () => ({ usePhoneTabHidden: () => 'tonight' }))
 vi.mock('@/src/components/Fork/HoldSetting', async () => {
   const { useState } = await import('react')

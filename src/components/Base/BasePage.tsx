@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { FlaskConical, Link2, Square, RefreshCw } from 'lucide-react'
 import { PageHeader } from '@/src/components/ds'
+import { NoiseSection } from '@/src/components/Fork/NoiseCard'
 import { BASE_SIDES, scopeSides } from '@/src/hardware/base/types'
 import type { BaseScope } from '@/src/hardware/base/types'
 import { trpc } from '@/src/utils/trpc'
@@ -244,6 +245,8 @@ export function BasePage({ demoHref }: { demoHref?: string } = {}) {
               </div>
             )}
       </fieldset>
+      {/* The debug page simulates only the base, so the real speaker's controls stay off it. */}
+      {demoHref !== undefined && <NoiseSection />}
     </div>
   )
 }

@@ -27,51 +27,42 @@ vi.mock('@/src/providers/TimeFormatProvider', () => ({ useTimeFormat: () => '12h
 vi.unmock('@/src/components/Fork/NoiseCard')
 
 import { DEFAULT_POD_SETTINGS } from '@/src/fork/settingsSchema'
-import { NoiseQuickToggle, NoiseSection } from '../NoiseCard'
+import { NoiseSection } from '../NoiseCard'
 
 const noise = (over: Record<string, unknown>) => ({ on: true, playing: true, reason: 'app', since: 1, problem: null, ...over })
+const sides = (left: number, right: number) => ({ left: { settings: { minutesToCall: left } }, right: { settings: { minutesToCall: right } } })
 
 beforeEach(() => {
   h.save.mockReset()
   h.saveError = null
-  h.overview = { pod: { noiseVolume: 20 }, noise: noise({}) }
 })
 
-describe('the Temp screen noise button', () => {
-  it('shows the volume while noise plays, and saves it once let go', () => {
-    render(<NoiseQuickToggle />)
+describe('the white noise volume', () => {
+  it('follows the slider and saves once it is let go', () => {
+    h.overview = { pod: { ...DEFAULT_POD_SETTINGS, noiseVolume: 20 }, noise: noise({}), ...sides(5, 5) }
+    render(<NoiseSection />)
     const slider = screen.getByRole('slider', { name: 'White noise volume' })
     fireEvent.change(slider, { target: { value: '35' } })
-    expect(screen.getByText('Vol 35')).toBeTruthy()
+    expect(screen.getByText('35')).toBeTruthy()
     fireEvent.pointerUp(slider)
     expect(h.save).toHaveBeenCalledWith({ patch: { noiseVolume: 35 } }, expect.anything())
   })
 
-  it('has no slider while noise is off', () => {
-    h.overview = { pod: { noiseVolume: 20 }, noise: noise({ on: false, playing: false }) }
-    render(<NoiseQuickToggle />)
-    expect(screen.queryByRole('slider')).toBeNull()
-  })
-
   it('says why noise is on but not playing', () => {
-    h.overview = { pod: { noiseVolume: 20 }, noise: noise({ playing: false, problem: 'The noise player stopped (exit 1): Access denied' }) }
-    render(<NoiseQuickToggle />)
-    expect(screen.getByText('White noise isn\'t playing. The noise player stopped (exit 1): Access denied')).toBeTruthy()
-    h.overview = { pod: { noiseVolume: 20 }, noise: noise({ playing: false, problem: 'Access denied' }) }
-    render(<NoiseQuickToggle className="pill" />)
-    expect(screen.getByRole('alert').textContent).toBe('Not playing')
+    h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({ playing: false, problem: 'The noise player stopped (exit 1): Access denied' }), ...sides(5, 5) }
+    render(<NoiseSection />)
+    expect(screen.getByText('The noise player stopped (exit 1): Access denied')).toBeTruthy()
   })
 
   it('says when a volume change wasn\'t saved', () => {
     h.saveError = { message: 'offline' }
-    render(<NoiseQuickToggle />)
+    h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({}), ...sides(5, 5) }
+    render(<NoiseSection />)
     expect(screen.getByText('Not saved')).toBeTruthy()
   })
 })
 
-describe('the white noise section of the Temp screen', () => {
-  const sides = (left: number, right: number) => ({ left: { settings: { minutesToCall: left } }, right: { settings: { minutesToCall: right } } })
-
+describe('the white noise section of the Base page', () => {
   it('offers every sound, the trigger, the empty-bed stop and the fade', () => {
     h.overview = { pod: DEFAULT_POD_SETTINGS, noise: noise({ on: false, playing: false }), ...sides(5, 5) }
     render(<NoiseSection />)

@@ -1,8 +1,6 @@
 'use client'
 
-import { Volume2 } from 'lucide-react'
-import { useState, type CSSProperties } from 'react'
-import { cn } from '@/lib/utils'
+import { useState } from 'react'
 import { Button, Card, InlineError, SectionLabel, SelectValue, SettingRow, Slider, StatusDot } from '@/src/components/ds'
 import type { NoiseReason } from '@/src/fork/noise'
 import type { ForkPodSettings } from '@/src/fork/settings'
@@ -78,14 +76,11 @@ export function noiseLine(noise: NoiseView, volume: number, clock: (at: number) 
   return noise.playing ? `Playing${started}${by}` : `Starting${by}`
 }
 
-/** The 3D stage is dark in either theme, so its slider takes the dark colours. */
-const STAGE_SLIDER = { '--text-1': '#ececec', '--border-2': '#3a3a3e', '--surface-card': '#0b0b0c' } as CSSProperties
-
 /**
  * The white noise volume as a slider. It saves once the slider is let go, and
  * a playing session changes volume within a few seconds without a break.
  */
-function NoiseVolume({ volume, className, style }: { volume: number, className?: string, style?: CSSProperties }) {
+function NoiseVolume({ volume }: { volume: number }) {
   const refresh = useForkRefresh()
   const save = trpc.fork.setPodSettings.useMutation({ onSuccess: refresh })
   const [draft, setDraft] = useState<number | null>(null)
@@ -95,48 +90,11 @@ function NoiseVolume({ volume, className, style }: { volume: number, className?:
   }
   const shown = draft ?? volume
   return (
-    <span className={cn('inline-flex items-center gap-2', className)} style={className ? { ...STAGE_SLIDER, ...style } : style}>
-      <span className="font-mono text-xs tabular-nums">{`Vol ${shown}`}</span>
-      <Slider className="w-28 flex-none" label="White noise volume" value={shown} step={5} onChange={setDraft} onCommit={commit} />
+    <span className="flex items-center gap-3">
+      <Slider className="w-36 flex-none" label="White noise volume" value={shown} step={5} onChange={setDraft} onCommit={commit} />
+      <span className="w-7 text-right font-mono text-xs tabular-nums">{shown}</span>
       {save.error && <span role="alert" className="text-xs text-danger" title={save.error.message}>Not saved</span>}
     </span>
-  )
-}
-
-/**
- * White noise on or off now for the Temp screen, with its volume while it
- * plays, and why it isn't playing when the player has failed. The 3D stage
- * passes its own pill look; the card view uses the standard button.
- */
-export function NoiseQuickToggle({ className, style }: { className?: string, style?: CSSProperties }) {
-  const { data } = useForkOverview()
-  const set = useSetNoise()
-  if (!data) return null
-  const on = data.noise.on
-  const label = on ? 'Stop white noise' : 'White noise'
-  const toggle = () => set.mutate({ on: !on })
-  const volume = on && <NoiseVolume volume={data.pod.noiseVolume} className={className} style={style} />
-  const problem = on && !data.noise.playing ? data.noise.problem : null
-  if (className) {
-    return (
-      <>
-        <button type="button" className={className} style={style} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
-          <Volume2 size={14} />
-          {label}
-        </button>
-        {volume}
-        {problem && <span role="alert" className={cn(className, 'cursor-default text-danger hover:bg-transparent')} style={style} title={problem}>Not playing</span>}
-      </>
-    )
-  }
-  return (
-    <>
-      <Button size="sm" icon={Volume2} disabled={set.isPending} onClick={toggle} aria-pressed={on}>
-        {label}
-      </Button>
-      {volume}
-      {problem && <InlineError className="basis-full">{`White noise isn't playing. ${problem}`}</InlineError>}
-    </>
   )
 }
 
@@ -168,8 +126,8 @@ export function NoiseCard({ pod, noise, names, minutes }: { pod: ForkPodSettings
         <SettingRow label="Sound">
           <SelectValue label="Sound" value={pod.noiseColor} options={[...COLORS]} onChange={noiseColor => save.mutate({ patch: { noiseColor } })} />
         </SettingRow>
-        <SettingRow label="Volume, 0 to 100">
-          <NumberField label="Volume, 0 to 100" value={pod.noiseVolume} step={5} onSave={noiseVolume => save.mutate({ patch: { noiseVolume: Math.round(noiseVolume) } })} />
+        <SettingRow label="Volume">
+          <NoiseVolume volume={pod.noiseVolume} />
         </SettingRow>
         <SettingRow label="Fades in and out over, seconds" sub="Fades in when it starts by itself, and fades out whenever it stops. 0 means at once.">
           <NumberField label="Fades in and out over, seconds" value={pod.noiseFadeSeconds} step={5} onSave={noiseFadeSeconds => save.mutate({ patch: { noiseFadeSeconds: Math.round(noiseFadeSeconds) } })} />
@@ -215,7 +173,7 @@ export function NoiseCard({ pod, noise, names, minutes }: { pod: ForkPodSettings
   )
 }
 
-/** All the white noise controls, for the bottom of the Temp screen. */
+/** All the white noise controls, for the Base page: the speaker is the base's. */
 export function NoiseSection() {
   const { data } = useForkOverview()
   const { leftName, rightName } = useSideNames()
