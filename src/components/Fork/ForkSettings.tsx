@@ -23,7 +23,7 @@ const SIDE_ROWS: Array<{ key: SideNumber, label: string, sub?: string, step?: nu
   { key: 'weightRise', label: 'Weight above empty that counts as a body' },
   { key: 'vibrationLimit', label: 'Vibration that counts as a body', step: 10_000 },
   { key: 'otherSideShare', label: 'Share of the other side\'s weight landing here', step: 0.05 },
-  { key: 'warmestF', label: 'Warmest allowed, °F' },
+  { key: 'warmestF', label: 'Warmest for Surface range and suggestions, °F' },
   { key: 'endOutMinutes', label: 'Minutes out before the end of the night' },
   { key: 'earliestEndHours', label: 'Earliest end, hours of curve', sub: 'Not counting time out of bed', step: 0.5 },
   { key: 'backstopHours', label: 'Backstop, hours after the curve begins', sub: 'Restarts after over an hour out', step: 0.5 },

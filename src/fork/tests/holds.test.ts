@@ -143,13 +143,13 @@ describe('presses on the empty half of a one-side bed (rule 5)', () => {
     expect(h.setManualLocked).toHaveBeenCalledWith('left', 83, 60 * MIN)
   })
 
-  it('pulls the home side\'s hold back to its warmest setting', async () => {
+  it('leaves the home side\'s hold uncapped below the hardware maximum', async () => {
     oneSide()
     h.target = 95
     setPodSettings({ holdMinutes: 60 })
     setSideSettings('left', { warmestF: 88 })
     await settlePress('right', true, ['top'])
-    expect(h.setManualLocked).toHaveBeenCalledWith('left', 88, 60 * MIN)
+    expect(h.setManualLocked.mock.calls[0][1]).toBeGreaterThan(88)
   })
 
   it('drops the press while the home side is off, turned off or blocked, as the half follows it off', async () => {
@@ -229,11 +229,11 @@ describe('presses', () => {
     expect(h.setManualLocked).not.toHaveBeenCalled()
   })
 
-  it('pulls a press back to the side\'s warmest setting', async () => {
+  it('holds a press where it landed, as stock does, whatever the warmest setting', async () => {
     h.target = 95
     setSideSettings('left', { warmestF: 90 })
     await settlePress('left', true, ['top'])
-    expect(h.setManualLocked.mock.calls[0][1]).toBe(90)
+    expect(h.setManualLocked.mock.calls[0][1]).toBe(95)
   })
 
   it('moves a press off neutral, which sleepypod reads as off', async () => {

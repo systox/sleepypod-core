@@ -167,8 +167,8 @@ export async function settlePress(side: Side, wasOn: boolean, buttons: string[],
     // A hold can power a side on, so a press must not undo someone turning it off.
     if (controller.status(side).blocked === 'safety' || controller.turnedOff(side)) return
     const target = currentTarget(side)
-    const landed = target === null || fahrenheitToLevel(Math.round(target)) === 0 ? STEP_OFF_NEUTRAL_F : Math.round(target)
-    const temperature = Math.min(landed, getSideSettings(side).warmestF)
+    // Where the press landed, uncapped: stock sleepypod limits a press only to the hardware's range.
+    const temperature = target === null || fahrenheitToLevel(Math.round(target)) === 0 ? STEP_OFF_NEUTRAL_F : Math.round(target)
     await controller.setManualLocked(side, temperature, pod.holdMinutes > 0 ? pod.holdMinutes * MINUTE : defaultHoldMs(side))
   })
   fades.delete(side)
@@ -199,7 +199,7 @@ async function pressForHome(side: Side, home: Side, before: number | null, holdM
     if (status.blocked !== null || controller.turnedOff(home)) return
     const from = status.targetTemperature ?? currentTarget(home)
     if (from === null) return
-    const temperature = Math.max(MIN_TEMP, Math.min(Math.round(from) + step, getSideSettings(home).warmestF, MAX_TEMP))
+    const temperature = Math.max(MIN_TEMP, Math.min(Math.round(from) + step, MAX_TEMP))
     await controller.setManualLocked(home, temperature, holdMinutes > 0 ? holdMinutes * MINUTE : defaultHoldMs(home))
   })
   // Rewritten from the plan even when the bed's target didn't change, at the warmest say.

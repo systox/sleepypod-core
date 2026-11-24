@@ -352,10 +352,10 @@ The cover button redirect (`holds.ts`):
   reported target.
 - If H is off, turned off by sleepypod, or blocked when the press settles, the
   press is dropped (A follows H off within a second). Otherwise H takes a hold
-  at H's current target plus the step, clamped as today, for the hold length
-  the settings give. A is then owed a write, so it is rewritten from the plan
-  even if the bed target did not change (for example when H is already at its
-  warmest).
+  at H's current target plus the step, clamped only to the hardware's range
+  (as stock does), for the hold length the settings give. A is then owed a
+  write, so it is rewritten from the plan even if the bed target did not
+  change (for example when H is already at the hardware's warmest).
 - No carry step, no dismissed check. The press is logged once, under H, with
   the half it came from.
 - While one side lasts, a press on **either** half always becomes a hold on H.
@@ -512,7 +512,7 @@ which is correct. The old row stays in `fork.db`, unused.
 | Upstream auto-on | Per half | Off on this Pod. If turned on, it would power A alone and A's step would undo it. Known gap. |
 | Upstream global max-on cap | Per half, skipping halves with a run-once | Off on this Pod. If turned on, A (no session of its own) could be cut while H runs, and A's step would turn it back on. Known gap. |
 | Upstream autopilot | Per half | Not used here (0 automations). Known gap. |
-| Alarms | H's alarm vibrates H's half | Unchanged. Vibrating both halves would be a separate upstream change; H has no alarms enabled. |
+| Alarms | H's alarm vibrates H's half | Unchanged. Upstream v3.9.0 rings a single sleeper's alarm on both halves, but only in its own single-sleeper mode (`alarmPartnerSide`), which one big side doesn't set; H has no alarms enabled. |
 | Vitals, sleep record (Python) | Merged under H | Unchanged |
 
 ## 7. Alternatives considered and rejected
@@ -561,7 +561,7 @@ named for the rule it checks:
    returns H only while one side lasts.
 6. Presses on A: step from the firmware move against the target recorded at
    the first press, including when the bed target changes during the wait;
-   neutral level counts as 83; clamped at warmest; A rewritten when the bed
+   neutral level counts as 83; clamped to the hardware's range; A rewritten when the bed
    target does not change; dropped when H is off, turned off or blocked at
    settle; logged once under H with the half; A off → Smart press for H;
    guard-blocked A → ignored; with Hold after adjustment Off, a hold until the
