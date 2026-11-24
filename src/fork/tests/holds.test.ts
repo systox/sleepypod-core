@@ -149,7 +149,8 @@ describe('presses on the empty half of a one-side bed (rule 5)', () => {
     setPodSettings({ holdMinutes: 60 })
     setSideSettings('left', { warmestF: 88 })
     await settlePress('right', true, ['top'])
-    expect(h.setManualLocked.mock.calls[0][1]).toBeGreaterThan(88)
+    // The half was written 84 and the press landed at 95, so the home side moves from 84 by the same 11.
+    expect(h.setManualLocked).toHaveBeenCalledWith('left', 95, 60 * MIN)
   })
 
   it('drops the press while the home side is off, turned off or blocked, as the half follows it off', async () => {

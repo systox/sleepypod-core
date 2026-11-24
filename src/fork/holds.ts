@@ -202,7 +202,7 @@ async function pressForHome(side: Side, home: Side, before: number | null, holdM
     const temperature = Math.max(MIN_TEMP, Math.min(Math.round(from) + step, MAX_TEMP))
     await controller.setManualLocked(home, temperature, holdMinutes > 0 ? holdMinutes * MINUTE : defaultHoldMs(home))
   })
-  // Rewritten from the plan even when the bed's target didn't change, at the warmest say.
+  // Rewritten from the plan even when the bed's target didn't change, for example with the home side already at the hardware's warmest.
   oweWrite(side)
   fades.delete(home)
 }
