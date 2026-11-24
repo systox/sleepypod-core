@@ -1194,6 +1194,7 @@ class SessionTracker:
             "vitals_evidence_ts": self._vitals_evidence_ts,
             "state_since": self._state_since,
             "consecutive_cap_closes": self._consecutive_cap_closes,
+            "closed_at": self._closed_at,
             "last_ts": self._last_ts,
             "level_present": self._level_present,
             "baseline": self.baseline.snapshot() if self.baseline is not None else None,
@@ -1219,6 +1220,9 @@ class SessionTracker:
             # thresholds is occupied only if it already was — resetting it
             # on restart would close a session that is still going.
             self._level_present = bool(state.get("level_present"))
+            # Kept across restarts, or the fork's old time reopens a capped session once more.
+            closed_at = state.get("closed_at")
+            self._closed_at = float(closed_at) if closed_at is not None else None
             start = state.get("session_start")
             if start is None:
                 return

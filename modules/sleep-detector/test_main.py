@@ -459,6 +459,26 @@ class TestPresenceDebounce:
         assert len(rows) == 1
         assert t._session_start.timestamp() == base + main.MAX_SESSION_S
 
+    def test_a_restart_keeps_the_capped_session_closed(self):
+        import json
+        t = _tracker()
+        base = 1_777_000_000.0
+        t._presence_since = base
+        ts = base
+        # Saved in the debounce after the cap closed, before the next session opens.
+        while ts <= base + main.MAX_SESSION_S:
+            _feed(t, [(ts, True)])
+            ts += 10
+        saved = json.loads(json.dumps(t.snapshot()))
+        assert saved["session_start"] is None
+        t2 = main.SessionTracker(side="left", db=t.db, calibration=None, pump_gate=None)
+        t2.restore(saved, now=ts)
+        t2._presence_since = base
+        while ts < base + main.MAX_SESSION_S + 3600:
+            _feed(t2, [(ts, True)])
+            ts += 10
+        assert t.db.conn.execute("SELECT COUNT(*) FROM sleep_records").fetchone()[0] == 1
+
     def test_consecutive_cap_closes_warn_and_escalate(self, caplog):
         # Trinity field report 2026-08: back-to-back rows of exactly
         # MAX_SESSION_S meant a stuck presence signal, silently. The cap
