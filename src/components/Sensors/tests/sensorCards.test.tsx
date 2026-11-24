@@ -28,7 +28,6 @@ vi.mock('@/src/utils/trpc', () => {
   return { trpc: {
     environment: { getLatestBedTemp: query('bed'), getLatestFreezerTemp: query('freezer'), getLatestAmbientLight: query('light') },
     waterLevel: { getLatest: query('water'), getFlowReadings: query('flow') }, biometrics: { getOccupancy: query('occupancy') },
-    fork: { coverLink: { useQuery: () => ({ data: mock.frames.sensHealth }) } },
   } }
 })
 beforeEach(() => {
@@ -139,7 +138,7 @@ it('uses server occupancy while visualizing frame variance independently', () =>
   expect(screen.getByTestId('presence-right').textContent).toContain('in bedstill')
 })
 
-it('marks a side Disconnected only when the Pod reports it unlinked', () => {
+it('marks a side Disconnected only when sensHealth reports it unlinked', () => {
   mock.data.occupancy = { left: { occupied: false, available: true, classification: 'none', movement: { active: false } }, right: { occupied: false, available: true, classification: 'none', movement: { active: false } } }
   const { rerender } = render(<PresenceCard />)
   // Older firmware: no sensHealth frame, nothing extra.

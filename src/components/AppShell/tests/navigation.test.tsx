@@ -3,6 +3,7 @@ import { setupI18n } from '@lingui/core'
 import { I18nProvider } from '@lingui/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import pod5J57 from '@/src/streaming/tests/fixtures/natsFramesPod5J57.json'
 import { AppShell } from '../AppShell'
 import { Sidebar } from '../Sidebar'
 import { TabBar } from '../TabBar'
@@ -23,7 +24,6 @@ vi.mock('@/src/hooks/useSensorStream', () => ({ useSensorFrame: (type: string) =
 vi.mock('@/src/utils/trpc', () => ({ trpc: {
   base: { getAvailability: { useQuery: () => ({ data: state.base }) } },
   device: { getStatus: { useQuery: () => ({ data: state.status }) } },
-  fork: { coverLink: { useQuery: () => ({ data: state.frames.sensHealth }) } },
   health: { system: { useQuery: () => ({ data: state.health }) }, maintenance: { useQuery: () => ({}) } },
   system: { getVersion: { useQuery: () => ({ data: state.version }) } },
   waterLevel: { getLatest: { useQuery: () => ({ data: state.water }) } },
@@ -108,11 +108,11 @@ describe('responsive navigation', () => {
     fireEvent.pointerDown(document.body)
     expect(screen.queryByTestId('build-details')).toBeNull()
   })
-  it('lists a disconnected cover sensor only when the Pod reports it', () => {
+  it('lists a disconnected cover sensor only when sensHealth reports it', () => {
     state.health = { status: 'ok', database: { status: 'ok' }, scheduler: {}, iptables: { ok: true } }
     const { rerender } = render(<Sidebar />, { wrapper })
-    // The Pod judges the cover, so the shell no longer streams sensor frames for it.
-    expect(subscription).not.toHaveBeenCalled()
+    // The shell keeps sensHealth subscribed on every page, not just System.
+    expect(subscription).toHaveBeenCalledWith({ sensors: ['sensHealth', 'bedTemp', 'bedTemp2'] })
     expect(screen.queryByTestId('footer-issues')).toBeNull()
     state.frames = { sensHealth: { type: 'sensHealth', ts: 1, version: 1, left: { connected: true }, right: { connected: true } } }
     rerender(<Sidebar />)
@@ -120,6 +120,17 @@ describe('responsive navigation', () => {
     state.frames = { sensHealth: { type: 'sensHealth', ts: 2, version: 1, left: { connected: false }, right: { connected: true } } }
     rerender(<Sidebar />)
     expect(within(screen.getByTestId('footer-issues')).getAllByRole('listitem').map(li => li.textContent)).toEqual(['Left cover sensor disconnected'])
+  })
+  it('ignores a sensHealth disconnect while the cover is still streaming (Pod 5 J57)', () => {
+    state.health = { status: 'ok', database: { status: 'ok' }, scheduler: {}, iptables: { ok: true } }
+    // Captured from a stock Pod 5 hub + cover on rat firmware: false/false while capsense, piezo and bedtemp stream.
+    const sensHealth = pod5J57.sensHealth[0].decoded
+    state.frames = { sensHealth, bedTemp: { type: 'bedTemp', ts: 1795144745 } }
+    const { rerender } = render(<Sidebar />, { wrapper })
+    expect(screen.queryByTestId('footer-issues')).toBeNull()
+    state.frames = { sensHealth, bedTemp: { type: 'bedTemp', ts: 1795144750 - 61 } }
+    rerender(<Sidebar />)
+    expect(within(screen.getByTestId('footer-issues')).getAllByRole('listitem').map(li => li.textContent)).toEqual(['Left and right cover sensors disconnected'])
   })
   it('shows release versions and preserves an unknown model name', () => {
     state.status = { podVersion: 'Future pod' }
