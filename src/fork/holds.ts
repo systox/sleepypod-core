@@ -18,7 +18,7 @@ import { observeMiddle } from './middleButton'
 import { awayHalfOf, bedOwnerOf, controlSideOf, lastWrittenTo, noteMeasured, oweWrite } from './oneSide'
 import { noteSmartPress } from './smart/runner'
 import { runtime } from './runtime'
-import { getPodSettings, getSideSettings } from './settings'
+import { getPodSettings } from './settings'
 import { logEvent } from './store'
 
 const MINUTE = 60_000
