@@ -1135,6 +1135,10 @@ class SessionTracker:
     # When the fork's detector dates this side's last change, so a record's
     # in and out times aren't its call-out delay late.
     _presence_since: Optional[float] = None
+    # Where the last recorded session ended. The fork's time can't date a new
+    # session before it, or a session capped at MAX_SESSION_S reopens already
+    # over the cap and is written again on every sample.
+    _closed_at: Optional[float] = None
     # Pod 5 firmware emits an all -1.0 capSense2 frame every 5 min; the frame
     # after it is still settling (channels above 28.5 read exactly 28.5), so
     # it is skipped too. Its down-and-back-up delta added ~110 to one epoch
@@ -1450,7 +1454,7 @@ class SessionTracker:
         if self._pending_state != raw_present:
             # New candidate differing from committed state — start its dwell.
             self._pending_state = raw_present
-            self._pending_since = min(ts, self._presence_since or ts)
+            self._pending_since = max(min(ts, self._presence_since or ts), self._closed_at or 0.0)
             return False
 
         if (self._pending_since is not None
@@ -1580,6 +1584,7 @@ class SessionTracker:
         if not wrote:
             return
 
+        self._closed_at = left_ts
         self._reset_session()
         self.state_dirty = True
 

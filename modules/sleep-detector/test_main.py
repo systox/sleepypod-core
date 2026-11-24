@@ -444,6 +444,21 @@ class TestPresenceDebounce:
         for duration_s, _exits in rows:
             assert duration_s <= main.MAX_SESSION_S
 
+    def test_fork_time_does_not_reopen_a_capped_session(self):
+        # Pod 5 2026-11-23: the fork dated presence from 22:48, so after the
+        # 16 h cap the next session began at 22:48 too, already over the cap,
+        # and was written again on every sample (3,961 rows in an hour).
+        t = _tracker()
+        base = 1_777_000_000.0
+        t._presence_since = base
+        ts = base
+        while ts < base + main.MAX_SESSION_S + 3600:
+            _feed(t, [(ts, True)])
+            ts += 10
+        rows = t.db.conn.execute("SELECT entered_bed_at, left_bed_at FROM sleep_records").fetchall()
+        assert len(rows) == 1
+        assert t._session_start.timestamp() == base + main.MAX_SESSION_S
+
     def test_consecutive_cap_closes_warn_and_escalate(self, caplog):
         # Trinity field report 2026-08: back-to-back rows of exactly
         # MAX_SESSION_S meant a stuck presence signal, silently. The cap
