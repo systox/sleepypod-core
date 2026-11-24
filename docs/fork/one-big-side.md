@@ -315,7 +315,7 @@ lock held is H's. Each entry point in the table calls `controlSideOf(side)` in
 | App/web power | same, `setPower` | 1 |
 | Resume schedule | same, `resumeTemperature` | 1 |
 | HomeKit temperature and power | `src/homekit/accessories/sideController.ts` | 3 |
-| Cover taps | `src/hardware/gestureActionHandler.ts` | 2: the temperature and power tap actions only. A ringing alarm and the alarm tap action stay on the tapped half, because the firmware stops only the tapped half's alarm, and redirecting would record H's alarm as ended while it rings. |
+| Cover taps | `src/hardware/gestureActionHandler.ts` | 2: the temperature and power tap actions only. The fork doesn't redirect alarm taps; since upstream v3.9.0 a tap during a single sleeper's alarm stops or snoozes it on both halves. |
 | Cover buttons | `src/fork/holds.ts` `settlePress` | fork code |
 
 `markPersonPower` then records H, so Smart start sees a person turning the bed
@@ -512,7 +512,7 @@ which is correct. The old row stays in `fork.db`, unused.
 | Upstream auto-on | Per half | Off on this Pod. If turned on, it would power A alone and A's step would undo it. Known gap. |
 | Upstream global max-on cap | Per half, skipping halves with a run-once | Off on this Pod. If turned on, A (no session of its own) could be cut while H runs, and A's step would turn it back on. Known gap. |
 | Upstream autopilot | Per half | Not used here (0 automations). Known gap. |
-| Alarms | H's alarm vibrates H's half | Unchanged. Upstream v3.9.0 rings a single sleeper's alarm on both halves, but only in its own single-sleeper mode (`alarmPartnerSide`), which one big side doesn't set; H has no alarms enabled. |
+| Alarms | H's alarm vibrates both halves | Since upstream v3.9.0 (`alarmPartnerSide`): one big side is upstream's single-sleeper state, so H's alarm also rings A, and a tap on either half stops or snoozes both. That suits one bed; H has no alarms enabled. |
 | Vitals, sleep record (Python) | Merged under H | Unchanged |
 
 ## 7. Alternatives considered and rejected
